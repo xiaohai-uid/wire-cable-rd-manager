@@ -1,0 +1,14 @@
+{
+  "name": "wire-cable-rd-manager",
+  "version": "1.0.0",
+  "description": "线材研发管理系统 - 测试台账/BOM/工艺记录/测试报告一体化管理",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.22.2"
+  }
+}

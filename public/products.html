@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>产品管理 - 线材研发管理系统</title><link rel="stylesheet" href="/css/style.css"></head>
+<body>
+<div class="navbar">
+  <div class="logo">📐 <span>线材研发</span>管理系统</div>
+  <div class="nav-links">
+    <a href="/">📊 仪表盘</a>
+    <a href="/products.html" class="active">📦 产品</a>
+    <a href="/ledger.html">📋 测试台账</a>
+    <a href="/bom.html">📑 BOM</a>
+    <a href="/process.html">🔧 工艺记录</a>
+    <a href="/reports.html">📝 测试报告</a>
+  </div>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+    <input id="globalSearch" placeholder="搜索..." style="padding:6px 12px;border:none;border-radius:6px;font-size:13px;width:160px;background:rgba(255,255,255,0.15);color:#fff;outline:none" onkeydown="if(event.key==='Enter')doSearch()">
+    <button onclick="doSearch()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:16px">🔍</button>
+  </div>
+</div>
+<div class="container">
+  <div class="page-header"><h2>📦 产品管理</h2><button class="btn btn-primary" onclick="showAddForm()">+ 新增产品</button></div>
+  <div class="card">
+    <div id="prodLoading" class="loading-overlay" style="min-height:120px"><div class="loading-spinner"></div></div>
+    <div class="table-wrap"><table><thead>
+      <tr><th>产品型号</th><th>产品名称</th><th>图纸编号</th><th>测试模板</th><th>创建时间</th><th>操作</th></tr>
+    </thead><tbody id="productTable"></tbody></table></div>
+    <div class="empty-state" id="emptyState"><div class="icon">📦</div><p>暂无产品，点击右上角新增</p></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal" style="display:none" onclick="if(event.target===this)hideModal()">
+  <div class="modal"><h3 id="modalTitle">新增产品</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>产品型号 *</label><input id="fModel" maxlength="200" placeholder="如 XH-100P-28AWG"></div>
+      <div class="form-group"><label>产品名称</label><input id="fName" maxlength="200" placeholder="如 100P排线"></div>
+      <div class="form-group"><label>图纸编号</label><input id="fDrawing" maxlength="200" placeholder="如 DRG-XH-100P-V1.0"></div>
+      <div class="form-group"><label>描述</label><input id="fDesc" maxlength="500" placeholder="可选"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="saveProduct()">保存</button>
+      <button class="btn btn-outline" onclick="hideModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="tmplModal" style="display:none" onclick="if(event.target===this)hideTmplModal()">
+  <div class="modal" style="min-width:600px"><h3 id="tmplTitle">测试模板管理</h3>
+    <p style="color:#666;font-size:13px;margin-bottom:12px">设置该产品的测试项目和规格要求，录入台账时自动填充。</p>
+    <div class="table-wrap" style="margin-bottom:12px">
+      <table><thead><tr><th>测试项目</th><th>规格要求</th><th>排序</th><th>操作</th></tr></thead>
+        <tbody id="tmplTable"></tbody>
+      </table>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;margin-bottom:12px">
+      <input id="tmplItem" maxlength="200" placeholder="测试项目" style="padding:8px;border:1px solid #ccc;border-radius:6px">
+      <input id="tmplSpec" maxlength="500" placeholder="规格要求" style="padding:8px;border:1px solid #ccc;border-radius:6px">
+      <input id="tmplOrder" type="number" value="0" style="padding:8px;border:1px solid #ccc;border-radius:6px">
+      <button class="btn btn-primary btn-sm" onclick="addTemplate()">添加</button>
+    </div>
+    <div class="form-actions"><button class="btn btn-outline" onclick="hideTmplModal()">关闭</button></div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script>
+let editId = null;
+let tmplProductModel = '';
+
+async function loadProducts() {
+  try {
+    const products = await API.get('/api/products');
+    const tbody = document.getElementById('productTable');
+    const empty = document.getElementById('emptyState');
+    if (products.length === 0) { tbody.innerHTML = ''; empty.style.display = 'block'; document.getElementById('prodLoading').classList.add('hidden'); return; }
+    empty.style.display = 'none';
+    // Batch load all templates
+    const allTmpls = await API.get('/api/templates');
+    const htmls = products.map(function(p) {
+      const tmpls = allTmpls.filter(function(t) { return t.product_model === p.model; });
+      return '<tr><td><strong>'+escapeHtml(p.model)+'</strong></td><td>'+escapeHtml(p.name)+'</td><td>'+escapeHtml(p.drawing_no)+'</td><td><span class="badge badge-pass">'+tmpls.length+'项</span></td><td>'+formatDate(p.created_at)+'</td><td><button class="btn btn-outline btn-sm" onclick="editProduct('+p.id+')">编辑</button> <button class="btn btn-success btn-sm" onclick="openTemplates(\''+escapeHtml(p.model)+'\')">模板</button> <button class="btn btn-danger btn-sm" onclick="deleteProduct('+p.id+')">删除</button></td></tr>';
+    });
+    tbody.innerHTML = htmls.join('');
+    document.getElementById('prodLoading').classList.add('hidden');
+  } catch(e) { showToast('加载失败: '+e.message, 'error'); document.getElementById('prodLoading').classList.add('hidden'); }
+}
+
+function showAddForm() { editId = null; document.getElementById('modalTitle').textContent = '新增产品';
+  ['fModel','fName','fDrawing','fDesc'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('modal').style.display = 'flex'; }
+
+function editProduct(id) { editId = id; document.getElementById('modalTitle').textContent = '编辑产品';
+  API.get('/api/products/'+id).then(function(p) {
+    document.getElementById('fModel').value = p.model;
+    document.getElementById('fName').value = p.name;
+    document.getElementById('fDrawing').value = p.drawing_no;
+    document.getElementById('fDesc').value = p.description;
+    document.getElementById('modal').style.display = 'flex';
+  }).catch(function(e){showToast('获取产品信息失败','error');});
+}
+
+function hideModal() { document.getElementById('modal').style.display = 'none'; }
+
+async function saveProduct() {
+  const data = {
+    model: document.getElementById('fModel').value.trim(),
+    name: document.getElementById('fName').value.trim(),
+    drawing_no: document.getElementById('fDrawing').value.trim(),
+    description: document.getElementById('fDesc').value.trim()
+  };
+  if (!data.model) return showToast('产品型号不能为空', 'error');
+  try {
+    if (editId) { await API.put('/api/products/'+editId, data); showToast('更新成功'); }
+    else { await API.post('/api/products', data); showToast('新增成功'); }
+    hideModal(); loadProducts();
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function deleteProduct(id) {
+  if (!confirm('确定删除该产品？所有关联数据不会自动删除。')) return;
+  try { await API.del('/api/products/'+id); showToast('删除成功'); loadProducts(); }
+  catch(e) { showToast(e.message, 'error'); }
+}
+
+function openTemplates(model) {
+  tmplProductModel = model;
+  document.getElementById('tmplTitle').textContent = '模板 - '+model;
+  document.getElementById('tmplModal').style.display = 'flex';
+  loadTemplates();
+}
+function hideTmplModal() { document.getElementById('tmplModal').style.display = 'none'; }
+
+async function loadTemplates() {
+  try {
+    const items = await API.get('/api/templates?product_model='+encodeURIComponent(tmplProductModel));
+    const tbody = document.getElementById('tmplTable');
+    if (items.length === 0) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999">暂无模板项</td></tr>'; return; }
+    tbody.innerHTML = items.map(function(t){return '<tr><td><strong>'+escapeHtml(t.test_item)+'</strong></td><td>'+escapeHtml(t.spec)+'</td><td>'+t.sort_order+'</td><td><button class="btn btn-danger btn-sm" onclick="deleteTemplate('+t.id+')">删除</button></td></tr>';}).join('');
+  } catch(e) { showToast('加载模板失败','error'); }
+}
+
+async function addTemplate() {
+  const item = document.getElementById('tmplItem').value.trim();
+  const spec = document.getElementById('tmplSpec').value.trim();
+  const order = parseInt(document.getElementById('tmplOrder').value) || 0;
+  if (!item) return showToast('测试项目不能为空','error');
+  try {
+    await API.post('/api/templates',{product_model:tmplProductModel,test_item:item,spec:spec,sort_order:order});
+    showToast('添加成功');
+    document.getElementById('tmplItem').value='';
+    document.getElementById('tmplSpec').value='';
+    loadTemplates();
+    loadProducts();
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+async function deleteTemplate(id) {
+  if (!confirm('确定删除该模板项？')) return;
+  try { await API.del('/api/templates/'+id); showToast('删除成功'); loadTemplates(); loadProducts(); }
+  catch(e) { showToast(e.message,'error'); }
+}
+loadProducts();
+</script>
+<script>
+async function doSearch() {
+  const q = document.getElementById('globalSearch').value.trim();
+  if (!q) return;
+  try {
+    const results = await API.get('/api/search?q='+encodeURIComponent(q));
+    let html = '<div style="max-height:400px;overflow-y:auto">';
+    if (results.products.length) html += '<h4 style="margin:8px 0">📦 产品</h4>'+results.products.map(p => '<div class="search-result-item"><a href="/products.html">'+escapeHtml(p.model)+(p.name ? ' - '+escapeHtml(p.name) : '')+'</a></div>').join('');
+    if (results.ledger.length) html += '<h4 style="margin:8px 0">📋 测试台账</h4>'+results.ledger.map(r => '<div class="search-result-item"><a href="/ledger.html">'+escapeHtml(r.test_item)+' ('+escapeHtml(r.product_model)+' - '+escapeHtml(r.batch_no)+')</a> '+judgmentBadge(r.judgment)+'</div>').join('');
+    if (results.boms.length) html += '<h4 style="margin:8px 0">📑 BOM</h4>'+results.boms.map(b => '<div class="search-result-item"><a href="/bom.html">'+escapeHtml(b.bom_no)+' - '+escapeHtml(b.product_model)+'</a></div>').join('');
+    if (results.process.length) html += '<h4 style="margin:8px 0">🔧 工艺记录</h4>'+results.process.map(p => '<div class="search-result-item"><a href="/process.html">'+escapeHtml(p.record_no)+' - '+escapeHtml(p.product_model)+'</a></div>').join('');
+    if (results.reports.length) html += '<h4 style="margin:8px 0">📝 测试报告</h4>'+results.reports.map(r => '<div class="search-result-item"><a href="/reports.html">'+escapeHtml(r.report_no)+' - '+escapeHtml(r.product_model)+'</a></div>').join('');
+    if (!results.products.length && !results.ledger.length && !results.boms.length && !results.process.length && !results.reports.length) html += '<p style="color:#999;text-align:center;padding:20px">未找到相关结果</p>';
+    html += '</div>';
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:flex-start;justify-content:center;z-index:300;padding-top:80px';
+    modal.onclick = function(e) { if (e.target === this) this.remove(); };
+    modal.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px;min-width:400px;max-width:600px;max-height:70vh;overflow-y:auto">' +
+      '<div style="display:flex;justify-content:space-between;margin-bottom:12px"><h3>搜索: '+escapeHtml(q)+'</h3><button onclick="this.closest(\'.modal-overlay\').remove()" style="background:none;border:none;font-size:20px;cursor:pointer">✕</button></div>' +
+      html + '</div>';
+    document.body.appendChild(modal);
+  } catch(e) { showToast('搜索失败: '+e.message, 'error'); }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>测试报告 - 线材研发管理系统</title><link rel="stylesheet" href="/css/style.css"></head>
+<body>
+<div class="navbar">
+  <div class="logo">📐 <span>线材研发</span>管理系统</div>
+  <div class="nav-links">
+    <a href="/">📊 仪表盘</a><a href="/products.html">📦 产品</a><a href="/ledger.html">📋 测试台账</a>
+    <a href="/bom.html">📑 BOM</a><a href="/process.html">🔧 工艺记录</a><a href="/reports.html" class="active">📝 测试报告</a>
+  </div>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+    <input id="globalSearch" placeholder="搜索..." style="padding:6px 12px;border:none;border-radius:6px;font-size:13px;width:160px;background:rgba(255,255,255,0.15);color:#fff;outline:none" onkeydown="if(event.key==='Enter')doSearch()">
+    <button onclick="doSearch()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:16px">🔍</button>
+  </div>
+</div>
+<div class="container">
+  <div class="page-header"><h2>📝 测试报告</h2><button class="btn btn-primary" onclick="showGenerateForm()">➕ 生成报告</button></div>
+  <div id="reptLoading" class="loading-overlay"><div class="loading-spinner"></div></div>
+  <div id="reportList"></div>
+</div>
+
+<!-- 生成报告窗口 -->
+<div class="modal-overlay" id="genModal" style="display:none" onclick="if(event.target===this)hideGenModal()">
+  <div class="modal"><h3>生成测试报告</h3>
+    <p style="color:#666;margin-bottom:16px;font-size:14px">选择一个批次号，系统将自动汇总该批次的所有测试数据生成结构化测试报告。</p>
+    <div class="form-grid">
+      <div class="form-group"><label>批号 *</label><select id="gBatch"><option value="">-- 选择批次 --</option></select></div>
+      <div class="form-group"><label>产品型号</label><input id="gModel" maxlength="200" placeholder="自动填充或手动输入"></div>
+      <div class="form-group"><label>客户名称</label><input id="gClient" maxlength="200"></div>
+      <div class="form-group"><label>测试标准</label><input id="gStandard" maxlength="500" placeholder="如 GB/T 5023"></div>
+      <div class="form-group"><label>测试人</label><input id="gTester" maxlength="200"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="generateReport()">生成报告</button>
+      <button class="btn btn-outline" onclick="hideGenModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 报告预览模态框 -->
+<div class="modal-overlay" id="previewModal" style="display:none" onclick="if(event.target===this)hidePreview()">
+  <div class="modal" style="min-width:800px;max-height:90vh">
+    <div id="reportPreview" class="report-preview"></div>
+    <div class="form-actions" style="position:sticky;bottom:0;background:#fff;padding-top:16px">
+      <button class="btn btn-success" onclick="exportReport()">📥 导出HTML</button>
+      <button class="btn btn-outline" onclick="exportWord()">📥 导出 Word</button>
+      <button class="btn btn-outline" onclick="printReport()">🖨️ 打印</button>
+      <button class="btn btn-outline" onclick="hidePreview()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script>
+let previewReportId = null;
+
+async function loadReports() {
+  try {
+    const reports = await API.get('/api/reports');
+    const container = document.getElementById('reportList');
+    if (reports.length === 0) {
+      container.innerHTML = '<div class="card"><div class="empty-state"><div class="icon">📝</div><p>暂无测试报告，点击右上角生成</p></div></div>';
+      document.getElementById('reptLoading').classList.add('hidden');
+      return;
+    }
+    container.innerHTML = reports.map(r => `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <strong style="font-size:15px">${escapeHtml(r.report_no)}</strong>
+          <span style="margin-left:12px;color:#666">${escapeHtml(r.product_model)}</span>
+          <span style="margin-left:8px;color:#999">批次: ${escapeHtml(r.batch_no)}</span>
+          <span style="margin-left:8px;color:#999;font-size:12px">${r.report_date ? formatDate(r.report_date) : ''}</span>
+          ${r.conclusion && r.conclusion.includes('合格') && !r.conclusion.includes('不合格') 
+            ? '<span class="badge badge-pass" style="margin-left:8px">合格</span>' 
+            : '<span class="badge badge-fail" style="margin-left:8px">有不合格项</span>'}
+        </div>
+        <div>
+          <button class="btn btn-outline btn-sm" onclick="previewReport(${r.id})">预览</button>
+          <button class="btn btn-success btn-sm" onclick="window.open('/api/reports/${r.id}/export','_blank')">导出HTML</button>
+          <button class="btn btn-outline btn-sm" onclick="window.open('/api/reports/${r.id}/export?format=doc','_blank')">导出 Word</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#999;margin-top:8px">
+        客户: ${escapeHtml(r.client_name)||'—'} | 测试人: ${escapeHtml(r.tester)||'—'} 
+        | 审核: ${escapeHtml(r.reviewer)||'—'} | 批准: ${escapeHtml(r.approver)||'—'}
+      </div>
+    </div>`).join('');
+    document.getElementById('reptLoading').classList.add('hidden');
+  } catch(e) { showToast('加载失败: '+e.message, 'error'); document.getElementById('reptLoading').classList.add('hidden'); }
+}
+
+function showGenerateForm() {
+  ['gBatch','gModel','gClient','gStandard','gTester'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el.tagName === 'SELECT') el.value = ''; else el.value = '';
+  });
+  document.getElementById('genModal').style.display = 'flex';
+  // 加载可用批次到下拉框
+  API.get('/api/ledger/batches').then(batches => {
+    const sel = document.getElementById('gBatch');
+    sel.innerHTML = '<option value="">-- 选择批次 --</option>' + batches.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+  }).catch(() => {});
+}
+
+function hideGenModal() { document.getElementById('genModal').style.display = 'none'; }
+
+async function generateReport() {
+  const data = {
+    batch_no: document.getElementById('gBatch').value.trim(),
+    product_model: document.getElementById('gModel').value.trim(),
+    client_name: document.getElementById('gClient').value.trim(),
+    standard: document.getElementById('gStandard').value.trim(),
+    tester: document.getElementById('gTester').value.trim()
+  };
+  if (!data.batch_no) return showToast('请填写批号', 'error');
+  try {
+    const res = await API.post('/api/reports/generate', data);
+    showToast(`报告已生成: ${res.report_no}`);
+    hideGenModal();
+    loadReports();
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function previewReport(id) {
+  previewReportId = id;
+  try {
+    const report = await API.get(`/api/reports/${id}`);
+    const items = report.items || [];
+    
+    let itemsHtml = items.map((item, i) => `<tr${item.judgment === '不合格' ? ' style="background:#fff0f0"' : ''}>
+      <td>${i+1}</td><td>${escapeHtml(item.test_item)}</td><td>${escapeHtml(item.spec)}</td>
+      <td>${item.value1 ?? ''}</td><td>${item.value2 ?? ''}</td><td>${item.value3 ?? ''}</td>
+      <td>${item.avg_value ?? ''}</td>
+      <td style="color:${item.judgment === '合格' ? 'green' : 'red'};font-weight:bold">${item.judgment}</td>
+    </tr>`).join('');
+
+    document.getElementById('reportPreview').innerHTML = `
+      <h2 style="text-align:center;color:#1a237e">线材测试报告</h2>
+      <p style="text-align:center;color:#888;margin-bottom:20px">${escapeHtml(report.report_no)}</p>
+      <table style="width:100%;border-collapse:collapse;margin:12px 0">
+        <tr><td style="background:#f5f5f5;width:100px;padding:6px;border:1px solid #ddd;font-weight:bold">产品型号</td>
+            <td style="padding:6px;border:1px solid #ddd">${escapeHtml(report.product_model)}</td>
+            <td style="background:#f5f5f5;width:80px;padding:6px;border:1px solid #ddd;font-weight:bold">批号</td>
+            <td style="padding:6px;border:1px solid #ddd">${escapeHtml(report.batch_no)}</td></tr>
+        <tr><td style="background:#f5f5f5;padding:6px;border:1px solid #ddd;font-weight:bold">图纸编号</td>
+            <td style="padding:6px;border:1px solid #ddd">${escapeHtml(report.drawing_no)}</td>
+            <td style="background:#f5f5f5;padding:6px;border:1px solid #ddd;font-weight:bold">BOM编号</td>
+            <td style="padding:6px;border:1px solid #ddd">${escapeHtml(report.bom_no)}</td></tr>
+        <tr><td style="background:#f5f5f5;padding:6px;border:1px solid #ddd;font-weight:bold">测试标准</td>
+            <td style="padding:6px;border:1px solid #ddd" colspan="3">${escapeHtml(report.standard)||'—'}</td></tr>
+        <tr><td style="background:#f5f5f5;padding:6px;border:1px solid #ddd;font-weight:bold">测试日期</td>
+            <td style="padding:6px;border:1px solid #ddd">${escapeHtml(report.test_date)||'—'}</td>
+            <td style="background:#f5f5f5;padding:6px;border:1px solid #ddd;font-weight:bold">报告日期</td>
+            <td style="padding:6px;border:1px solid #ddd">${escapeHtml(report.report_date)||'—'}</td></tr>
+      </table>
+      <h4 style="margin:16px 0 8px">测试数据</h4>
+      <table style="width:100%;border-collapse:collapse;margin:8px 0">
+        <thead><tr style="background:#e8e8e8">
+          <th style="padding:8px;border:1px solid #333">序号</th><th style="padding:8px;border:1px solid #333">测试项目</th>
+          <th style="padding:8px;border:1px solid #333">规格要求</th><th style="padding:8px;border:1px solid #333">值1</th>
+          <th style="padding:8px;border:1px solid #333">值2</th><th style="padding:8px;border:1px solid #333">值3</th>
+          <th style="padding:8px;border:1px solid #333">平均值</th><th style="padding:8px;border:1px solid #333">判定</th>
+        </tr></thead><tbody>${itemsHtml}</tbody>
+      </table>
+      <h4 style="margin:16px 0 8px">结论</h4>
+      <p style="padding:12px;background:#f9f9f9;border-left:4px solid ${report.conclusion && report.conclusion.includes('不合格') ? '#c62828' : '#2e7d32'}">${escapeHtml(report.conclusion)}</p>
+      <div style="margin-top:30px;display:flex;justify-content:space-around;font-size:14px;align-items:center">
+        <span>测试人: ${escapeHtml(report.tester)||'______'}</span>
+        <span>审核人: <input id="signReviewer" value="${escapeHtml(report.reviewer)||''}" style="width:100px;padding:2px 6px;border:1px solid #ccc;border-radius:4px;font-size:14px"></span>
+        <span>批准人: <input id="signApprover" value="${escapeHtml(report.approver)||''}" style="width:100px;padding:2px 6px;border:1px solid #ccc;border-radius:4px;font-size:14px"></span>
+        <button class="btn btn-primary btn-sm" onclick="saveSign()">保存签名</button>
+      </div>`;
+    document.getElementById('previewModal').style.display = 'flex';
+  } catch(e) { showToast('加载失败: '+e.message, 'error'); }
+}
+
+function hidePreview() { document.getElementById('previewModal').style.display = 'none'; }
+
+function exportReport() {
+  if (previewReportId) window.open(`/api/reports/${previewReportId}/export`, '_blank');
+}
+
+function exportWord() {
+  if (previewReportId) window.open(`/api/reports/${previewReportId}/export?format=doc`, '_blank');
+}
+
+function printReport() {
+  if (previewReportId) {
+    const w = window.open(`/api/reports/${previewReportId}/export`);
+    w.onload = () => { w.print(); };
+  }
+}
+
+async function saveSign() {
+  if (!previewReportId) return;
+  const reviewer = document.getElementById('signReviewer').value.trim();
+  const approver = document.getElementById('signApprover').value.trim();
+  try {
+    await API.post(`/api/reports/${previewReportId}/sign`, { reviewer, approver });
+    showToast('签名保存成功');
+    loadReports();
+  } catch(e) { showToast('保存失败: '+e.message, 'error'); }
+}
+
+loadReports();
+</script>
+<script>
+async function doSearch() {
+  const q = document.getElementById('globalSearch').value.trim();
+  if (!q) return;
+  try {
+    const results = await API.get('/api/search?q='+encodeURIComponent(q));
+    let html = '<div style="max-height:400px;overflow-y:auto">';
+    if (results.products.length) html += '<h4 style="margin:8px 0">📦 产品</h4>'+results.products.map(p => '<div class="search-result-item"><a href="/products.html">'+escapeHtml(p.model)+(p.name ? ' - '+escapeHtml(p.name) : '')+'</a></div>').join('');
+    if (results.ledger.length) html += '<h4 style="margin:8px 0">📋 测试台账</h4>'+results.ledger.map(r => '<div class="search-result-item"><a href="/ledger.html">'+escapeHtml(r.test_item)+' ('+escapeHtml(r.product_model)+' - '+escapeHtml(r.batch_no)+')</a> '+judgmentBadge(r.judgment)+'</div>').join('');
+    if (results.boms.length) html += '<h4 style="margin:8px 0">📑 BOM</h4>'+results.boms.map(b => '<div class="search-result-item"><a href="/bom.html">'+escapeHtml(b.bom_no)+' - '+escapeHtml(b.product_model)+'</a></div>').join('');
+    if (results.process.length) html += '<h4 style="margin:8px 0">🔧 工艺记录</h4>'+results.process.map(p => '<div class="search-result-item"><a href="/process.html">'+escapeHtml(p.record_no)+' - '+escapeHtml(p.product_model)+'</a></div>').join('');
+    if (results.reports.length) html += '<h4 style="margin:8px 0">📝 测试报告</h4>'+results.reports.map(r => '<div class="search-result-item"><a href="/reports.html">'+escapeHtml(r.report_no)+' - '+escapeHtml(r.product_model)+'</a></div>').join('');
+    if (!results.products.length && !results.ledger.length && !results.boms.length && !results.process.length && !results.reports.length) html += '<p style="color:#999;text-align:center;padding:20px">未找到相关结果</p>';
+    html += '</div>';
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:flex-start;justify-content:center;z-index:300;padding-top:80px';
+    modal.onclick = function(e) { if (e.target === this) this.remove(); };
+    modal.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px;min-width:400px;max-width:600px;max-height:70vh;overflow-y:auto">' +
+      '<div style="display:flex;justify-content:space-between;margin-bottom:12px"><h3>搜索: '+escapeHtml(q)+'</h3><button onclick="this.closest(\'.modal-overlay\').remove()" style="background:none;border:none;font-size:20px;cursor:pointer">✕</button></div>' +
+      html + '</div>';
+    document.body.appendChild(modal);
+  } catch(e) { showToast('搜索失败: '+e.message, 'error'); }
+}
+</script>
+</body>
+</html>
