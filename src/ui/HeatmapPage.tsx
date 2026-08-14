@@ -1,24 +1,49 @@
 import type { HeatmapCell, HeatmapMatrix, HeatmapRow } from '../domain/heatmap';
 import { useDataPort } from './data-port-context';
+import { DetailPanel } from './DetailPanel';
 import { useAsync } from './use-async';
+import { useUrlState } from './use-url-state';
 
 /**
  * 首屏：`测试项 × 产品` 的不良率矩阵。
  *
  * 它取代 1.0 版的「四个大数字」。四个大数字只能告诉你「有 3 条不合格」，
  * 这张矩阵直接告诉你**是哪个产品的哪个测试项在出问题** —— 不用读数字，扫一眼颜色就够。
+ *
+ * 点格子在同一页往下展开明细，不跳页。选中的格子写进 URL，刷新后还在原处。
  */
 export function HeatmapPage() {
   const port = useDataPort();
   const { state, reload } = useAsync(() => port.loadHeatmap(), [port]);
+  const { params, setParams } = useUrlState();
+
+  const selection =
+    params.product !== undefined && params.item !== undefined
+      ? { productModel: params.product, testItem: params.item }
+      : null;
 
   return (
     <main className="mx-auto max-w-[1160px] px-5 pt-5 pb-24">
       {state.status === 'loading' && <LoadingState />}
       {state.status === 'error' && <ErrorState error={state.error} onRetry={reload} />}
-      {state.status === 'ready' && <Matrix matrix={state.data} />}
+      {state.status === 'ready' && (
+        <Matrix
+          matrix={state.data}
+          selection={selection}
+          onSelect={(productModel, testItem) =>
+            setParams({ product: productModel, item: testItem })
+          }
+          onClear={() => setParams({ product: undefined, item: undefined })}
+          onOpenBatch={(batchNo) => setParams({ batch: batchNo })}
+        />
+      )}
     </main>
   );
+}
+
+export interface Selection {
+  readonly productModel: string;
+  readonly testItem: string;
 }
 
 /* ------------------------------------------------------------------ 三态 */
@@ -74,8 +99,28 @@ function EmptyState() {
 
 /* ------------------------------------------------------------------ 矩阵 */
 
-function Matrix({ matrix }: { readonly matrix: HeatmapMatrix }) {
+function Matrix({
+  matrix,
+  selection,
+  onSelect,
+  onClear,
+  onOpenBatch,
+}: {
+  readonly matrix: HeatmapMatrix;
+  readonly selection: Selection | null;
+  readonly onSelect: (productModel: string, testItem: string) => void;
+  readonly onClear: () => void;
+  readonly onOpenBatch: (batchNo: string) => void;
+}) {
   const { overall, products, rows } = matrix;
+
+  // URL 里的组合可能已经不存在了（比如产品被删掉后有人打开旧链接）。
+  // 这种情况下明细面板照样展开，由它自己说明「未配置此测试项」，而不是静默忽略。
+  const selectedCell = selection
+    ? rows
+        .find((r) => r.testItem === selection.testItem)
+        ?.cells.find((c) => c.productModel === selection.productModel)
+    : undefined;
 
   return (
     <>
@@ -84,7 +129,7 @@ function Matrix({ matrix }: { readonly matrix: HeatmapMatrix }) {
           <h1 className="text-[17px] font-semibold tracking-tight">质量矩阵</h1>
           <p className="mt-0.5 text-[12px] text-ink-3">
             {overall.totalCount} 条记录 · {rows.length} 个测试项 × {products.length} 个产品 ·
-            颜色深浅代表该组合的不良率
+            点格子看明细
           </p>
         </div>
       </div>
@@ -126,7 +171,12 @@ function Matrix({ matrix }: { readonly matrix: HeatmapMatrix }) {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <MatrixRow key={row.testItem} row={row} />
+                  <MatrixRow
+                    key={row.testItem}
+                    row={row}
+                    selection={selection}
+                    onSelect={onSelect}
+                  />
                 ))}
               </tbody>
             </table>
@@ -134,16 +184,38 @@ function Matrix({ matrix }: { readonly matrix: HeatmapMatrix }) {
           <Legend />
         </>
       )}
+
+      {selection && (
+        <DetailPanel
+          productModel={selection.productModel}
+          testItem={selection.testItem}
+          configured={selectedCell?.configured ?? false}
+          onClose={onClear}
+          onOpenBatch={onOpenBatch}
+        />
+      )}
     </>
   );
 }
 
-function MatrixRow({ row }: { readonly row: HeatmapRow }) {
+function MatrixRow({
+  row,
+  selection,
+  onSelect,
+}: {
+  readonly row: HeatmapRow;
+  readonly selection: Selection | null;
+  readonly onSelect: (productModel: string, testItem: string) => void;
+}) {
+  const rowSelected = selection?.testItem === row.testItem;
+
   return (
     <tr className="group">
       <th
         scope="row"
-        className="sticky left-0 z-10 border-r border-b border-line bg-panel px-3 py-1 text-left font-normal group-hover:bg-zinc-50/80"
+        className={`sticky left-0 z-10 border-r border-b border-line px-3 py-1 text-left font-normal ${
+          rowSelected ? 'bg-accent-soft' : 'bg-panel group-hover:bg-zinc-50/80'
+        }`}
       >
         <span className="flex items-baseline gap-2">
           <span className="text-[12.5px] font-medium">{row.testItem}</span>
@@ -160,43 +232,67 @@ function MatrixRow({ row }: { readonly row: HeatmapRow }) {
             className={`tabular text-[11px] ${row.failCount > 0 ? 'text-fail' : 'text-ink-3'}`}
             title={`该测试项全部产品合计：${row.failCount} 次不合格 / ${row.judgedCount} 次已判定`}
           >
-            {row.judgedCount === 0 ? '未测' : `${formatRate(row.defectRate)} · ${row.failCount}/${row.judgedCount}`}
+            {row.judgedCount === 0
+              ? '未测'
+              : `${formatRate(row.defectRate)} · ${row.failCount}/${row.judgedCount}`}
           </span>
         </span>
       </th>
 
       {row.cells.map((cell) => (
         <td key={cell.productModel} className="border-b border-line/60 p-1 align-middle">
-          <Cell cell={cell} />
+          <Cell
+            cell={cell}
+            selected={
+              selection?.testItem === cell.testItem &&
+              selection?.productModel === cell.productModel
+            }
+            onSelect={() => onSelect(cell.productModel, cell.testItem)}
+          />
         </td>
       ))}
     </tr>
   );
 }
 
-function Cell({ cell }: { readonly cell: HeatmapCell }) {
+function Cell({
+  cell,
+  selected,
+  onSelect,
+}: {
+  readonly cell: HeatmapCell;
+  readonly selected: boolean;
+  readonly onSelect: () => void;
+}) {
   const recordCount = cell.judgedCount + cell.unjudgedCount + cell.unparseableCount;
+  const ring = selected ? 'ring-2 ring-accent ring-offset-1' : '';
 
   // 「这个产品没配这一项」和「配了、测了、零不合格」是两件完全不同的事，
   // 混在一起看会把「漏测」读成「没问题」。所以前者留白+虚线，后者给浅绿+✓。
   // 只有「没配且一条记录都没有」才算不适用 —— 否则会把有记录的异常情况藏起来。
   if (!cell.configured && recordCount === 0) {
     return (
-      <div
-        className="flex h-[38px] items-center justify-center rounded-[5px] bg-heat-na text-zinc-300"
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`flex h-[38px] w-full cursor-pointer items-center justify-center rounded-[5px] bg-heat-na text-zinc-300 hover:bg-zinc-100 ${ring}`}
         title={`不适用：${cell.productModel} 的测试模板里没有「${cell.testItem}」这一项`}
       >
         {/* 弱化到几乎看不见 —— 21×5 的矩阵里若每个空格都写「不适用」，热点就被文字盖住了 */}
         <span aria-hidden>–</span>
-        <span className="sr-only">不适用</span>
-      </div>
+        <span className="sr-only">
+          {cell.testItem} · {cell.productModel}：不适用
+        </span>
+      </button>
     );
   }
 
   if (cell.judgedCount === 0) {
     return (
-      <div
-        className="flex h-[38px] items-center justify-center rounded-[5px] border border-dashed border-line-strong text-[11px] text-ink-3"
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`flex h-[38px] w-full cursor-pointer items-center justify-center rounded-[5px] border border-dashed border-line-strong text-[11px] text-ink-3 hover:bg-zinc-50 ${ring}`}
         title={
           cell.unparseableCount > 0
             ? `${cell.unparseableCount} 条记录的规格无法识别，系统拒绝判定`
@@ -204,15 +300,17 @@ function Cell({ cell }: { readonly cell: HeatmapCell }) {
         }
       >
         {cell.unparseableCount > 0 ? '规格?' : '未测'}
-      </div>
+      </button>
     );
   }
 
   const level = heatLevel(cell.defectRate);
   return (
-    <div
-      className={`flex h-[38px] flex-col items-center justify-center rounded-[5px] ${level.className}`}
-      title={`${cell.testItem} · ${cell.productModel}：${cell.failCount} 次不合格 / ${cell.judgedCount} 次已判定`}
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex h-[38px] w-full cursor-pointer flex-col items-center justify-center rounded-[5px] transition-shadow hover:shadow-[inset_0_0_0_1.5px_rgba(0,0,0,.16)] ${level.className} ${ring}`}
+      title={`${cell.testItem} · ${cell.productModel}：${cell.failCount} 次不合格 / ${cell.judgedCount} 次已判定 —— 点击看明细`}
     >
       <span className="tabular text-[12px] leading-none font-semibold">
         {cell.failCount === 0 ? '✓' : formatRate(cell.defectRate)}
@@ -221,7 +319,7 @@ function Cell({ cell }: { readonly cell: HeatmapCell }) {
       <span className="tabular mt-0.5 text-[9.5px] leading-none opacity-70">
         {cell.failCount}/{cell.judgedCount}
       </span>
-    </div>
+    </button>
   );
 }
 
