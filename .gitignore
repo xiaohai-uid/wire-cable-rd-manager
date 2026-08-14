@@ -1,7 +1,12 @@
 node_modules/
-package-lock.json
+dist/
+
+# SQLite 数据库文件（HttpAdapter 模式的本地数据，见工单 06）
 data/*.db
 data/*.db-shm
 data/*.db-wal
+
 *.log
 .DS_Store
+
+# package-lock.json 刻意入库：部署用 npm ci，需要可复现的依赖树。

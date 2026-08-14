@@ -1,0 +1,22 @@
+@import 'tailwindcss';
+
+/* 设计语言来自胜出的原型（变体 C）。这里只放全局基调，组件样式一律用 Tailwind 类。 */
+@theme {
+  --font-sans: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Mono', 'Consolas', monospace;
+}
+
+html {
+  /* 表格密集界面，禁用 iOS 上的字体自动放大 */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+/* 测量值、阈值、批次号一律等宽 —— 数字要能上下对齐着扫。 */
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
