@@ -19,6 +19,7 @@ export function AppShell({
 }) {
   const port = useDataPort();
   const onBatch = url.params.page === 'batch';
+  const onManage = url.params.page === 'manage';
 
   const navigate = (patch: Record<string, string | undefined>) => {
     if (
@@ -39,12 +40,15 @@ export function AppShell({
 
         <nav className="flex gap-0.5">
           <TabButton
-            active={!onBatch}
+            active={!onBatch && !onManage}
             onClick={() =>
               navigate({ page: undefined, product: undefined, item: undefined, batch: undefined })
             }
           >
             质量矩阵
+          </TabButton>
+          <TabButton active={onManage} onClick={() => navigate({ page: 'manage', product: undefined })}>
+            维护
           </TabButton>
           <TabButton active={onBatch} onClick={() => navigate({ page: 'batch' })}>
             录入

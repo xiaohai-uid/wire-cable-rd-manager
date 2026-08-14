@@ -3,6 +3,7 @@ import { AppShell } from './ui/AppShell';
 import { DataPortProvider } from './ui/data-port-context';
 import { HeatmapPage } from './ui/HeatmapPage';
 import { BatchEntryPage } from './ui/BatchEntryPage';
+import { ProductsPage } from './ui/ProductsPage';
 import { useUrlState } from './ui/use-url-state';
 
 /**
@@ -11,7 +12,14 @@ import { useUrlState } from './ui/use-url-state';
  */
 export function App({ port }: { readonly port: DataPort }) {
   const url = useUrlState();
-  const page = url.params.page === 'batch' ? <BatchEntryPage /> : <HeatmapPage />;
+  const page =
+    url.params.page === 'batch' ? (
+      <BatchEntryPage />
+    ) : url.params.page === 'manage' ? (
+      <ProductsPage />
+    ) : (
+      <HeatmapPage />
+    );
 
   return (
     <DataPortProvider port={port}>
