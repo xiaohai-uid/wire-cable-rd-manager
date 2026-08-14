@@ -77,11 +77,15 @@ export function buildHeatmap(input: {
   // 行的全集来自测试模板（应当测什么），而不是只来自已有记录 ——
   // 否则「配了但还没测」的项会整行消失，看不出漏测。
   const testItems: string[] = [];
+  const seenItems = new Set<string>();
   const configured = new Set<string>();
   const qualitativeItems = new Set<string>();
 
   for (const template of input.templates) {
-    if (!testItems.includes(template.testItem)) testItems.push(template.testItem);
+    if (!seenItems.has(template.testItem)) {
+      seenItems.add(template.testItem);
+      testItems.push(template.testItem);
+    }
     configured.add(keyOf(template.testItem, template.productModel));
     if (parseSpec(template.spec).kind === 'qualitative') {
       qualitativeItems.add(template.testItem);
@@ -96,7 +100,10 @@ export function buildHeatmap(input: {
     const { judgment } = resolveJudgment(record);
     const cellKey = keyOf(record.testItem, record.productModel);
 
-    if (!testItems.includes(record.testItem)) testItems.push(record.testItem);
+    if (!seenItems.has(record.testItem)) {
+      seenItems.add(record.testItem);
+      testItems.push(record.testItem);
+    }
 
     const cell = cellTallies.get(cellKey) ?? emptyTally();
     const row = rowTallies.get(record.testItem) ?? emptyTally();

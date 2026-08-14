@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, KeyboardEvent, MutableRefObject } from 'react';
 import { parseSpec } from '../domain/spec';
 import { resolveJudgment } from '../domain/judgment';
@@ -32,10 +32,9 @@ export function BatchEntryPage() {
   const [status, setStatus] = useState<SaveStatus>({ kind: 'idle' });
 
   const inputRefs = useRef(new Map<string, HTMLInputElement | null>());
-  const numericRowIndexes = useMemo(
-    () => rows.map((r, i) => (r.isQualitative ? -1 : i)).filter((i) => i >= 0),
-    [rows],
-  );
+  // 用 ref 持有最新 rows，让键盘导航回调在打字过程中保持稳定引用（P5）。
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const locateItem = params.item;
 
   /** 按产品 + 批号载入：模板铺行；若批号对应已有台账，则带出原数据（编辑模式）。 */
@@ -101,79 +100,98 @@ export function BatchEntryPage() {
     void load(productModel, b);
   };
 
-  const editRow = (index: number, patch: Partial<GridRow>) => {
-    setRows((rs) => rs.map((r, i) => (i === index ? { ...r, ...patch } : r)));
-    setDirty(true);
-  };
+  const editRow = useCallback(
+    (index: number, patch: Partial<GridRow>) => {
+      setRows((rs) => rs.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+      setDirty(true);
+    },
+    [setRows, setDirty],
+  );
 
-  const setCell = (index: number, col: number, raw: string) => {
-    setRows((rs) =>
-      rs.map((r, i) => {
-        if (i !== index) return r;
-        const next = [...r.rawValues];
-        next[col] = raw;
-        return { ...r, rawValues: next };
-      }),
-    );
-    setDirty(true);
-  };
+  const handleManual = useCallback(
+    (i: number, m: ManualJudgment) => editRow(i, { manualJudgment: m }),
+    [editRow],
+  );
+  const handleRemark = useCallback(
+    (i: number, v: string) => editRow(i, { remark: v }),
+    [editRow],
+  );
 
-  const focusCell = (rowIndex: number, col: number) => {
-    inputRefs.current.get(`${rowIndex}:${col}`)?.focus();
-  };
+  const setCell = useCallback(
+    (index: number, col: number, raw: string) => {
+      setRows((rs) =>
+        rs.map((r, i) => {
+          if (i !== index) return r;
+          const next = [...r.rawValues];
+          next[col] = raw;
+          return { ...r, rawValues: next };
+        }),
+      );
+      setDirty(true);
+    },
+    [setRows, setDirty],
+  );
 
-  const onCellKeyDown = (
-    e: KeyboardEvent<HTMLInputElement>,
-    rowIndex: number,
-    col: number,
-  ) => {
-    const pos = numericRowIndexes.indexOf(rowIndex);
-    if (e.key === 'Enter' || e.key === 'ArrowDown') {
-      focusCell(numericRowIndexes[pos + 1] ?? rowIndex, col);
-      e.preventDefault();
-    } else if (e.key === 'ArrowUp') {
-      focusCell(numericRowIndexes[pos - 1] ?? rowIndex, col);
-      e.preventDefault();
-    } else if (e.key === 'ArrowLeft' && col > 0) {
-      focusCell(rowIndex, col - 1);
-      e.preventDefault();
-    } else if (e.key === 'ArrowRight' && col < 2) {
-      focusCell(rowIndex, col + 1);
-      e.preventDefault();
-    }
-  };
+  const focusCell = useCallback(
+    (rowIndex: number, col: number) => {
+      inputRefs.current.get(`${rowIndex}:${col}`)?.focus();
+    },
+    [inputRefs],
+  );
 
-  const onCellPaste = (
-    e: ClipboardEvent<HTMLInputElement>,
-    rowIndex: number,
-    col: number,
-  ) => {
-    const text = e.clipboardData.getData('text');
-    if (text.trim() === '') return;
-    const matrix = parseTableClipboard(text);
-    if (matrix.length === 0) return;
-    e.preventDefault();
-    setRows((rs) => {
-      const next = rs.map((r) => ({ ...r, rawValues: [...r.rawValues] }));
-      for (let dr = 0; dr < matrix.length; dr++) {
-        const r = rowIndex + dr;
-        if (r >= next.length) break;
-        const row = next[r];
-        if (!row || row.isQualitative) continue;
-        const srcRow = matrix[dr];
-        if (!srcRow) continue;
-        for (let dc = 0; dc < srcRow.length; dc++) {
-          const c = col + dc;
-          if (c > 2) break;
-          const cell = srcRow[dc];
-          if (cell === undefined) continue;
-          row.rawValues[c] = cell;
-        }
+  const onCellKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>, rowIndex: number, col: number) => {
+      const numericRowIndexes = rowsRef.current
+        .map((r, i) => (r.isQualitative ? -1 : i))
+        .filter((i) => i >= 0);
+      const pos = numericRowIndexes.indexOf(rowIndex);
+      if (e.key === 'Enter' || e.key === 'ArrowDown') {
+        focusCell(numericRowIndexes[pos + 1] ?? rowIndex, col);
+        e.preventDefault();
+      } else if (e.key === 'ArrowUp') {
+        focusCell(numericRowIndexes[pos - 1] ?? rowIndex, col);
+        e.preventDefault();
+      } else if (e.key === 'ArrowLeft' && col > 0) {
+        focusCell(rowIndex, col - 1);
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight' && col < 2) {
+        focusCell(rowIndex, col + 1);
+        e.preventDefault();
       }
-      return next;
-    });
-    setDirty(true);
-  };
+    },
+    [rowsRef, focusCell],
+  );
+
+  const onCellPaste = useCallback(
+    (e: ClipboardEvent<HTMLInputElement>, rowIndex: number, col: number) => {
+      const text = e.clipboardData.getData('text');
+      if (text.trim() === '') return;
+      const matrix = parseTableClipboard(text);
+      if (matrix.length === 0) return;
+      e.preventDefault();
+      setRows((rs) => {
+        const next = rs.map((r) => ({ ...r, rawValues: [...r.rawValues] }));
+        for (let dr = 0; dr < matrix.length; dr++) {
+          const r = rowIndex + dr;
+          if (r >= next.length) break;
+          const row = next[r];
+          if (!row || row.isQualitative) continue;
+          const srcRow = matrix[dr];
+          if (!srcRow) continue;
+          for (let dc = 0; dc < srcRow.length; dc++) {
+            const c = col + dc;
+            if (c > 2) break;
+            const cell = srcRow[dc];
+            if (cell === undefined) continue;
+            row.rawValues[c] = cell;
+          }
+        }
+        return next;
+      });
+      setDirty(true);
+    },
+    [setRows, setDirty],
+  );
 
   const summary = useMemo(() => {
     let pass = 0;
@@ -376,8 +394,8 @@ export function BatchEntryPage() {
                   onCell={setCell}
                   onKeyDown={onCellKeyDown}
                   onPaste={onCellPaste}
-                  onManual={(m) => editRow(i, { manualJudgment: m })}
-                  onRemark={(v) => editRow(i, { remark: v })}
+                  onManual={handleManual}
+                  onRemark={handleRemark}
                 />
               ))}
             </tbody>
@@ -392,7 +410,7 @@ export function BatchEntryPage() {
 
 /* ----------------------------------------------------------- 单行 */
 
-function GridRowView({
+const GridRowView = memo(function GridRowView({
   rowIndex,
   row,
   locate,
@@ -418,8 +436,8 @@ function GridRowView({
     rowIndex: number,
     col: number,
   ) => void;
-  readonly onManual: (m: ManualJudgment) => void;
-  readonly onRemark: (v: string) => void;
+  readonly onManual: (rowIndex: number, m: ManualJudgment) => void;
+  readonly onRemark: (rowIndex: number, v: string) => void;
 }) {
   const jr = resolveJudgment({
     spec: row.spec,
@@ -452,13 +470,13 @@ function GridRowView({
               active={row.manualJudgment === 'pass'}
               label="合格"
               tone="pass"
-              onClick={() => onManual('pass')}
+              onClick={() => onManual(rowIndex, 'pass')}
             />
             <ManualButton
               active={row.manualJudgment === 'fail'}
               label="不合格"
               tone="fail"
-              onClick={() => onManual('fail')}
+              onClick={() => onManual(rowIndex, 'fail')}
             />
           </div>
         </td>
@@ -490,14 +508,14 @@ function GridRowView({
       <td className="p-1">
         <input
           value={row.remark}
-          onChange={(e) => onRemark(e.target.value)}
+          onChange={(e) => onRemark(rowIndex, e.target.value)}
           placeholder="备注"
           className="h-7 w-28 rounded border border-line bg-panel px-1.5 text-[11.5px] text-ink focus:border-accent focus:outline-none"
         />
       </td>
     </tr>
   );
-}
+});
 
 function ManualButton({
   active,

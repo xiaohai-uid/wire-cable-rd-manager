@@ -31,9 +31,9 @@ export function HeatmapPage() {
           matrix={state.data}
           selection={selection}
           onSelect={(productModel, testItem) =>
-            setParams({ product: productModel, item: testItem })
+            setParams({ product: productModel, item: testItem }, { replace: true })
           }
-          onClear={() => setParams({ product: undefined, item: undefined })}
+          onClear={() => setParams({ product: undefined, item: undefined }, { replace: true })}
           onOpenBatch={(batchNo) =>
             setParams({
               page: 'batch',

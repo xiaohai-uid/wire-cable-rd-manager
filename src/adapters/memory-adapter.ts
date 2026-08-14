@@ -126,12 +126,22 @@ export class MemoryAdapter implements DataPort {
   }
 
   async listRecords(query: RecordQuery): Promise<readonly LedgerRecord[]> {
-    return this.#records.filter(
+    let rows = this.#records.filter(
       (r) =>
         (query.productModel === undefined || r.productModel === query.productModel) &&
         (query.testItem === undefined || r.testItem === query.testItem) &&
         (query.batchNo === undefined || r.batchNo === query.batchNo),
     );
+    // 分页只在显式给出 limit 时生效，否则返回全部（契约测试依赖“无条件返回 62 条”）。
+    if (query.limit !== undefined) {
+      const start = query.offset ?? 0;
+      rows = rows.slice(start, start + query.limit);
+    }
+    return rows;
+  }
+
+  async countRecords(productModel: string): Promise<number> {
+    return this.#records.filter((r) => r.productModel === productModel).length;
   }
 
   async listBatchNos(productModel: string): Promise<readonly string[]> {

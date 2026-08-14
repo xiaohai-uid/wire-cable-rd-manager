@@ -58,6 +58,7 @@ function migrate(db: Db): void {
 
     CREATE INDEX IF NOT EXISTS idx_records_product ON records(productModel);
     CREATE INDEX IF NOT EXISTS idx_records_batch   ON records(batchNo);
+    CREATE INDEX IF NOT EXISTS idx_records_testitem ON records(testItem);
   `);
 }
 

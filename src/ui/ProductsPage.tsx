@@ -53,7 +53,7 @@ async function loadCatalog(port: DataPort): Promise<CatalogRow[]> {
     products.map(async (product) => ({
       product,
       templateCount: (await port.listTemplates(product.model)).length,
-      recordCount: (await port.listRecords({ productModel: product.model })).length,
+      recordCount: await port.countRecords(product.model),
     })),
   );
 }

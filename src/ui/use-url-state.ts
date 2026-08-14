@@ -22,8 +22,8 @@ function read(): UrlParams {
 
 export interface UrlState {
   readonly params: UrlParams;
-  /** 合并写入；值传 undefined 表示删掉这个参数 */
-  readonly setParams: (patch: UrlParams) => void;
+  /** 合并写入；值传 undefined 表示删掉这个参数。opts.replace 为 true 时改用 replaceState，避免瞬时态（如热力图选区）污染历史栈 */
+  readonly setParams: (patch: UrlParams, opts?: { replace?: boolean }) => void;
 }
 
 export function useUrlState(): UrlState {
@@ -36,7 +36,7 @@ export function useUrlState(): UrlState {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  const setParams = useCallback((patch: UrlParams) => {
+  const setParams = useCallback((patch: UrlParams, opts?: { replace?: boolean }) => {
     const next = new URLSearchParams(window.location.search);
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined || value === '') next.delete(key);
@@ -44,7 +44,8 @@ export function useUrlState(): UrlState {
     }
     const query = next.toString();
     const url = `${window.location.pathname}${query ? `?${query}` : ''}`;
-    window.history.pushState(null, '', url);
+    if (opts?.replace) window.history.replaceState(null, '', url);
+    else window.history.pushState(null, '', url);
     setLocal(read());
   }, []);
 

@@ -43,6 +43,8 @@ export interface DataPort {
 
   /** 查询台账记录。供下钻（产品 + 测试项）与批次读取（产品 + 批号）共用 */
   listRecords(query: RecordQuery): Promise<readonly LedgerRecord[]>;
+  /** 某产品的台账记录条数，用于列表页计数，避免为计数拉取整张台账 */
+  countRecords(productModel: string): Promise<number>;
   /** 某产品下已有的批号，按测试日期倒序 */
   listBatchNos(productModel: string): Promise<readonly string[]>;
   /**
@@ -71,6 +73,10 @@ export interface RecordQuery {
   readonly productModel?: string;
   readonly testItem?: string;
   readonly batchNo?: string;
+  /** 可选分页上限（行数），由服务端校验正整数，用于列表下钻避免拉取整表（P2） */
+  readonly limit?: number;
+  /** 可选分页偏移（行数），与 limit 配合使用 */
+  readonly offset?: number;
 }
 
 export interface BatchEntryDraft {

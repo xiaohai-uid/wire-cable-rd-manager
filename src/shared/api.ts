@@ -12,6 +12,14 @@ import { z } from 'zod';
  * 由适配器负责在两者间转换。
  */
 
+/** 日期统一为 `YYYY-MM-DD`，避免脏日期串入库后排序/解析出错。 */
+const DateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD');
+
+/** 业务短文本上限，防止超大字符串撑爆请求体 / 数据库行。 */
+const ShortText = z.string().max(200);
+
 const MeasurementValuesSchema = z.tuple([
   z.number().nullable(),
   z.number().nullable(),
@@ -19,58 +27,58 @@ const MeasurementValuesSchema = z.tuple([
 ]);
 
 export const ProductSchema = z.object({
-  model: z.string(),
-  name: z.string(),
-  drawingNo: z.string(),
-  description: z.string(),
+  model: ShortText,
+  name: ShortText,
+  drawingNo: ShortText,
+  description: z.string().max(2000),
 });
 export type ProductDTO = z.infer<typeof ProductSchema>;
 
 export const TestTemplateItemSchema = z.object({
-  productModel: z.string(),
-  testItem: z.string(),
-  spec: z.string(),
+  productModel: ShortText,
+  testItem: ShortText,
+  spec: ShortText,
   sortOrder: z.number(),
 });
 export type TestTemplateItemDTO = z.infer<typeof TestTemplateItemSchema>;
 
 export const LedgerRecordSchema = z.object({
-  id: z.string(),
-  testDate: z.string(),
-  productModel: z.string(),
-  drawingNo: z.string(),
-  batchNo: z.string(),
-  testItem: z.string(),
-  spec: z.string(),
+  id: ShortText,
+  testDate: DateSchema,
+  productModel: ShortText,
+  drawingNo: ShortText,
+  batchNo: ShortText,
+  testItem: ShortText,
+  spec: ShortText,
   values: MeasurementValuesSchema,
   manualJudgment: z.enum(['pass', 'fail']).nullable(),
-  tester: z.string(),
-  remark: z.string(),
+  tester: ShortText,
+  remark: z.string().max(2000),
 });
 export type LedgerRecordDTO = z.infer<typeof LedgerRecordSchema>;
 
 export const TemplateDraftSchema = z.object({
-  testItem: z.string(),
-  spec: z.string(),
+  testItem: ShortText,
+  spec: ShortText,
   sortOrder: z.number(),
 });
 export type TemplateDraftDTO = z.infer<typeof TemplateDraftSchema>;
 
 export const BatchEntrySchema = z.object({
-  testItem: z.string(),
-  spec: z.string(),
+  testItem: ShortText,
+  spec: ShortText,
   values: MeasurementValuesSchema,
   manualJudgment: z.enum(['pass', 'fail']).nullable(),
-  remark: z.string(),
+  remark: z.string().max(2000),
 });
 export type BatchEntryDTO = z.infer<typeof BatchEntrySchema>;
 
 export const BatchDraftSchema = z.object({
-  productModel: z.string(),
-  batchNo: z.string(),
-  testDate: z.string(),
-  tester: z.string(),
-  entries: z.array(BatchEntrySchema).min(1),
+  productModel: ShortText,
+  batchNo: ShortText,
+  testDate: DateSchema,
+  tester: ShortText,
+  entries: z.array(BatchEntrySchema).min(1).max(1000),
 });
 export type BatchDraftDTO = z.infer<typeof BatchDraftSchema>;
 
@@ -78,6 +86,8 @@ export const RecordQuerySchema = z.object({
   productModel: z.string().optional(),
   testItem: z.string().optional(),
   batchNo: z.string().optional(),
+  limit: z.number().int().min(1).max(5000).optional(),
+  offset: z.number().int().min(0).optional(),
 });
 export type RecordQueryDTO = z.infer<typeof RecordQuerySchema>;
 

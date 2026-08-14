@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import { serve } from '@hono/node-server';
 import { openDb, seedIfEmpty } from './db';
 import { createApp } from './app';
@@ -48,20 +48,36 @@ api.get('*', (c) => {
     return c.text('前端尚未构建：请先运行 `npm run build`（dist/ 不存在）。', 503);
   }
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  const filePath = normalize(join(DIST, rel));
-  if (!filePath.startsWith(DIST) || !existsSync(filePath) || !statSync(filePath).isFile()) {
+  // 穿越防护（H2）：用 resolve(DIST, rel) 一次性规范化，再断言真实路径仍落在 DIST 目录树内。
+  // 拼 sep 避免把 'dist-foo' 这类前缀误判为 'dist' 的子路径。
+  const filePath = resolve(DIST, rel);
+  if (filePath !== DIST && !filePath.startsWith(DIST + sep)) {
+    return c.text('Forbidden', 403);
+  }
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
     // SPA 回退：非文件都给 index.html
     const index = readFileSync(join(DIST, 'index.html'));
-    return new Response(index, { headers: { 'content-type': CONTENT_TYPES['.html'] ?? 'text/html; charset=utf-8' } });
+    return c.body(index, 200, {
+      'content-type': CONTENT_TYPES['.html'] ?? 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache',
+    });
   }
   const data = readFileSync(filePath);
   const ct = CONTENT_TYPES[extname(filePath)] ?? 'application/octet-stream';
-  return new Response(data, { headers: { 'content-type': ct } });
+  // P7：静态资源带 Cache-Control，浏览器可缓存、减少重复 IO（安全头由 app 层中间件统一加）。
+  return c.body(data, 200, { 'content-type': ct, 'Cache-Control': 'public, max-age=3600' });
 });
 
-const server = serve({ fetch: api.fetch, port }, (info) => {
-  console.log(`[wire-cable-rd-manager] 本地服务已启动：http://localhost:${info.port}  (数据库: ${dbPath})`);
-});
+// H1：默认只绑回环地址 127.0.0.1，避免局域网任意机器直接调写接口。
+// 确需远程时用 HOST 环境变量覆盖，并自行加 token/https 等防护。
+const server = serve(
+  { fetch: api.fetch, port, hostname: process.env.HOST ?? '127.0.0.1' },
+  (info) => {
+    console.log(
+      `[wire-cable-rd-manager] 本地服务已启动：http://localhost:${info.port}  (数据库: ${dbPath})`,
+    );
+  },
+);
 
 // 优雅退出
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

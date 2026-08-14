@@ -41,6 +41,29 @@ export function createApp(db: Db): Hono {
     return c.json({ code: 'internal', message: String(err instanceof Error ? err.message : err) }, 500);
   });
 
+  // 基础安全响应头（H4，低危加固）。本地工具也该有底线防护。
+  app.use('*', async (c, next) => {
+    await next();
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('X-Frame-Options', 'DENY');
+    c.header('Referrer-Policy', 'no-referrer');
+    c.header(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+    );
+  });
+
+  // 请求体大小上限（H3，收敛 DoS 面）。本地工具设 1MB；超了直接 413，不进业务逻辑。
+  // 注：仅按 Content-Length 头拦截（客户端通常都会带）；分块且无长度头的极端情况不在此拦截。
+  const MAX_BODY_BYTES = 1_000_000;
+  app.use('/api/*', async (c, next) => {
+    const len = Number(c.req.header('content-length') ?? '0');
+    if (len > MAX_BODY_BYTES) {
+      return c.json({ code: 'invalid', message: '请求体过大（上限 1MB）' }, 413);
+    }
+    await next();
+  });
+
   // ---- 产品 ----
   app.get('/api/products', (c) => c.json(repo.listProducts()));
   app.get('/api/products/:model', (c) => {
@@ -78,9 +101,14 @@ export function createApp(db: Db): Hono {
       productModel: params.get('productModel') ?? undefined,
       testItem: params.get('testItem') ?? undefined,
       batchNo: params.get('batchNo') ?? undefined,
+      limit: params.get('limit') != null ? Number(params.get('limit')) : undefined,
+      offset: params.get('offset') != null ? Number(params.get('offset')) : undefined,
     });
     return c.json(repo.listRecords(query as RecordQuery));
   });
+  app.get('/api/records/count/:model', (c) =>
+    c.json({ count: repo.countRecords(c.req.param('model')) }),
+  );
   app.get('/api/products/:model/batch-nos', (c) =>
     c.json(repo.listBatchNos(c.req.param('model'))),
   );

@@ -40,12 +40,27 @@ function unsafeUnitReason(unit: string): string | null {
 }
 
 /**
+ * 解析结果按「trim 后的规格串」做模块级记忆化（P1）。
+ * `buildHeatmap` 对每条记录、`ProductsPage` 对每行的规格都会调用本函数，
+ * 而同一产品的测试项规格往往高度重复（如「≤0.5Ω」），缓存能把重复正则解析降到一次。
+ * 规则对象是不可变的，缓存同一引用安全。
+ */
+const specCache = new Map<string, JudgmentRule>();
+
+/**
  * 把人写的规格串解析成带类型的判定规则。
  * 解析不了就明确返回 `unparseable`，绝不猜。
  */
 export function parseSpec(raw: string): JudgmentRule {
   const source = String(raw ?? '').trim();
+  const cached = specCache.get(source);
+  if (cached !== undefined) return cached;
+  const rule = parseSpecUncached(source);
+  specCache.set(source, rule);
+  return rule;
+}
 
+function parseSpecUncached(source: string): JudgmentRule {
   if (source.length === 0) {
     return { kind: 'unparseable', raw: source, reason: '规格为空' };
   }

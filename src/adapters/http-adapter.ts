@@ -70,12 +70,15 @@ export class HttpAdapter implements DataPort {
     const f = this.opts.fetchImpl ?? fetch;
     const res = await f(`${this.opts.baseUrl}/api/products/${encodeURIComponent(model)}`);
     if (res.status === 404) {
-      const json = await res.json().catch(() => null);
-      const env = S.ErrorEnvelopeSchema.safeParse(json);
-      if (env.success && env.data.code === 'not-found') return null;
+      // body 只消费一次：无论是否为标准信封，404 一律按“产品不存在”处理，
+      // 不再二次读取已消费过的响应体（原先会落到下面的 res.json() 抛错）。
+      const env = S.ErrorEnvelopeSchema.safeParse(await res.json().catch(() => null));
+      if (!env.success || env.data.code === 'not-found') return null;
+      // 服务端内部错误在信封里记为 'internal'，但 DataPort 契约没有这一档，归并到 network。
+      const code = env.data.code === 'internal' ? 'network' : env.data.code;
+      throw new DataPortError(code, env.data.message);
     }
-    const json = await res.json();
-    return S.ProductSchema.parse(json);
+    return S.ProductSchema.parse(await res.json());
   }
 
   async createProduct(product: Product): Promise<Product> {
@@ -124,8 +127,19 @@ export class HttpAdapter implements DataPort {
     if (query.productModel !== undefined) qs.set('productModel', query.productModel);
     if (query.testItem !== undefined) qs.set('testItem', query.testItem);
     if (query.batchNo !== undefined) qs.set('batchNo', query.batchNo);
+    if (query.limit !== undefined) qs.set('limit', String(query.limit));
+    if (query.offset !== undefined) qs.set('offset', String(query.offset));
     const suffix = qs.toString();
     return this.call('GET', `/api/records${suffix ? `?${suffix}` : ''}`, z.array(S.LedgerRecordSchema));
+  }
+
+  async countRecords(productModel: string): Promise<number> {
+    const { count } = await this.call(
+      'GET',
+      `/api/records/count/${encodeURIComponent(productModel)}`,
+      z.object({ count: z.number() }),
+    );
+    return count;
   }
 
   async listBatchNos(productModel: string): Promise<readonly string[]> {
