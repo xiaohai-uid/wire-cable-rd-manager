@@ -1,14 +1,15 @@
 <!--
-*** 线材研发一体化管理系统 ***
+*** 线材研发一体化管理系统 · 2.0 ***
 -->
 
-# 📐 Wire Cable RD Manager · 线材研发管理系统
+# 📐 Wire Cable RD Manager · 线材研发质量管理系统（2.0）
 
-> **线材研发岗位的一站式数字化工具** — 测试台账 / BOM 管理 / 工艺记录 / 测试报告自动生成
+> **线材 / 电缆研发岗位的一站式质量数据工具** —— 质量热力图、点格同页下钻、批次网格录入、产品与测试模板管理。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D24-brightgreen)](https://nodejs.org)
 [![SQLite](https://img.shields.io/badge/database-SQLite-blue)](https://sqlite.org)
+[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen)](docs/TEST-RESULTS.md)
 
 ---
 
@@ -16,19 +17,18 @@
 
 | 模块 | 说明 |
 |------|------|
-| 📊 **仪表盘** | 不良率趋势图、最新测试动态、全局统计概览 |
-| 📋 **测试台账** | 在线录入测试数据，**自动计算平均值**、**自动判定合格/不合格**、不合格自动高亮 |
-| 📦 **产品管理** | 产品型号 + 图纸编号统一管理，贯穿所有文档的核心标识 |
-| 📑 **BOM 物料清单** | 物料编码/名称/规格/用量/损耗率管理，关联产品型号和图纸编号 |
-| 🔧 **打样工艺记录** | 设备信息 + 各工序参数 + 首件检验结果，便于追溯和复现 |
-| 📝 **测试报告** | 基于台账数据**一键生成**结构化测试报告，可导出为 Word |
+| 🔥 **质量热力图首页** | 产品 × 测试项的不良率矩阵，红绿一眼看出哪批、哪项最该盯；点格即下钻，不跳页 |
+| 🔍 **点格同页下钻** | 点任意格 → 右侧抽屉展开该格全部批次记录，URL 同步状态，刷新 / 分享链接都能还原 |
+| 📋 **批次录入网格** | 一个网格整批录入（替代 1.0 的 12 次弹窗），自动算均值、自动判定合格 / 不合格、不合格高亮 |
+| 🧩 **产品与测试模板** | 产品型号 + 图纸编号统一管理；测试模板带**实时规格解析预览**，写错规格当场标红 |
+| 🗑️ **级联删除确认** | 删产品前先告诉你会连带清掉多少模板和台账记录，不让你误删留孤儿 |
 
 ### 核心特色
 
-- ⚡ **自动判定**：三种规格类型（上限/下限/范围）自动计算平均值并判定合格/不合格
-- 📈 **不良率统计**：实时统计批次不良率，不合格记录红色高亮
-- 🔗 **编号串联**：产品型号 + 图纸编号作为核心键，贯穿所有文档
-- 🚀 **零配置部署**：`npm install && npm start` 即可运行
+- ⚡ **判定引擎**：四种规格类型（上限 / 下限 / 范围 / 定性）自动算均值并判定，规则用类型化结构表达（`docs/adr/0004-spec-as-typed-judgment-rule.md`）
+- 🧭 **双适配器架构**：UI 只认 `DataPort` 接口，演示用内存适配器、本地用 HTTP+SQLite 适配器，**同一套契约测试保证两端行为一致**（`docs/adr/0002-modern-stack-dual-adapter.md`）
+- 🔗 **编号串联**：产品型号 + 图纸编号作为核心键，贯穿热力图、台账与模板
+- 🪶 **零路由库**：SPA 状态走手写 query 参数，GitHub Pages 子路径下也不会 404
 
 ---
 
@@ -36,27 +36,31 @@
 
 ### 前置要求
 
-- [Node.js](https://nodejs.org/) ≥ 18.x
+- [Node.js](https://nodejs.org/) ≥ 24.x（用到内置 `node:sqlite`，免原生编译）
 - npm（随 Node.js 安装）
 
-### 安装与运行
+### 方式一：本地全功能（数据落盘）
 
 ```bash
-# 1. 克隆仓库
-git clone https://github.com/xiaohai-uid/wire-cable-rd-manager.git
-cd wire-cable-rd-manager
-
-# 2. 安装依赖
 npm install
-
-# 3. 启动服务
-npm start
-
-# 4. 打开浏览器访问
-# http://localhost:3789
+npm run build      # 类型检查 + 打包前端
+npm run server     # 启动 Hono + SQLite，默认 http://localhost:8787
 ```
 
-> 默认端口 **3789**，可在 `server.js` 中修改 `PORT` 变量。
+打开 http://localhost:8787 —— 数据写进 `./wire-cable.db`，刷新不丢。
+
+> 环境变量：`WIRE_DB`（库文件路径，默认 `./wire-cable.db`）、`PORT`（默认 `8787`）。
+
+### 方式二：开发模式（带热更新）
+
+```bash
+npm run dev        # Vite 开发服务器，默认 http://localhost:5173（演示模式，内存数据）
+```
+
+### 在线演示
+
+GitHub Pages 上跑的是**演示模式**（内存数据，刷新即还原），顶部常驻「演示模式 · 数据不持久」提示。
+地址：https://xiaohai-uid.github.io/wire-cable-rd-manager/
 
 ---
 
@@ -64,10 +68,12 @@ npm start
 
 | 层面 | 技术 | 说明 |
 |------|------|------|
-| 后端 | Node.js + Express | 轻量 Web 框架，Windows 友好 |
-| 数据库 | SQLite (better-sqlite3) | 零安装、单文件数据库 |
-| 前端 | 原生 HTML + CSS + JavaScript | 无构建步骤，纯原生 |
-| 部署 | 直接 `node server.js` | 无需 Docker 或额外服务 |
+| 前端 | React 19 + Vite 6 + TypeScript（strict） | 手写 query 参数做 SPA 状态，无路由库 |
+| 样式 | Tailwind CSS v4 | —— |
+| 本地后端 | Hono 4 + @hono/node-server | 每个端点只定义一次 |
+| 数据库 | SQLite（`node:sqlite`，Node 24 内置） | `PRAGMA foreign_keys=ON` + `ON DELETE CASCADE` + 显式事务，免原生编译 |
+| 校验 | Zod（前后端共享 schema） | 服务端校验入站、HttpAdapter 校验出站，同 schema 保证前后端一致 |
+| 测试 | Vitest 3 + Testing Library | 契约测试对 MemoryAdapter 与 HttpAdapter 各跑一遍 |
 
 ---
 
@@ -75,23 +81,25 @@ npm start
 
 ```
 wire-cable-rd-manager/
-├── server.js                 # Express 主入口（路由 + 静态文件）
-├── database.js               # SQLite 数据库初始化与表结构
-├── seed-real-data.js         # 示例数据填充脚本
-├── public/                   # 前端静态文件
-│   ├── index.html            # 仪表盘
-│   ├── products.html         # 产品管理
-│   ├── ledger.html           # 测试台账
-│   ├── bom.html              # BOM 管理
-│   ├── process.html          # 工艺记录
-│   ├── reports.html          # 测试报告
-│   ├── css/style.css         # 全局样式
-│   └── js/api.js             # API 调用封装
-├── docs/                     # 项目文档
-│   ├── adr/                  # 架构决策记录
-│   └── issues/               # 任务拆解
-├── CONTEXT.md                # 领域术语表
-├── PRD.md                    # 产品需求文档
+├── src/
+│   ├── domain/            # 纯领域逻辑（判定引擎、规格解析、热力图聚合）—— 零 I/O，契约测试 seam 2
+│   ├── ports/
+│   │   ├── data-port.ts        # DataPort 接口 + DataPortError（唯一数据访问契约）
+│   │   └── data-port.contract.ts  # 适配器契约测试，两端各跑一遍
+│   ├── adapters/
+│   │   ├── memory-adapter.ts   # 演示模式：内存实现（GitHub Pages 用这个）
+│   │   └── http-adapter.ts     # 本地模式：打 Hono+SQLite 的 HTTP 实现
+│   ├── server/            # 服务端：db.ts / repo.ts / app.ts / index.ts
+│   ├── shared/api.ts      # 前后端共享 Zod 线协议
+│   ├── ui/                # React 界面（热力图 / 下钻 / 批次网格 / 产品管理）
+│   ├── entry/             # 纯前端逻辑（模板编辑状态机、粘贴解析）
+│   ├── App.tsx / main.tsx # 界面装配 + 适配器在此按构建变量选定
+│   └── index.css
+├── docs/
+│   ├── adr/              # 架构决策记录（0001–0004）
+│   ├── issues/           # 工单拆解（001–007）
+│   └── SPEC.md           # 产品规格
+├── .github/workflows/    # Pages 部署流水线
 └── package.json
 ```
 
@@ -99,26 +107,23 @@ wire-cable-rd-manager/
 
 ## 🧪 判定逻辑（核心业务规则）
 
-测试台账的自动判定支持四种规格类型：
+测试台账的自动判定支持四种规格类型，规则用类型化结构表达：
 
 | 规格类型 | 示例 | 判定规则 |
 |---------|------|---------|
 | **上限规格** | ≤0.5Ω | 三个测试值均 ≤ 上限 → 合格 |
 | **下限规格** | ≥1000V | 三个测试值均 ≥ 下限 → 合格 |
 | **范围规格** | 5.0±0.1mm | 三个测试值均在范围内 → 合格 |
-| **定性项目** | 外观检查 | 输入"通过"/"合格"判定 |
+| **定性项目** | 外观检查 | 输入「通过 / 合格」判定 |
 
 ---
 
-## 📖 使用场景
+## 📖 架构决策（节选）
 
-本系统专为**线材/电缆研发岗位**设计，适用于：
-
-- 🔬 **日常测试数据管理** — 替代 Excel 台账，自动计算和判定
-- 📋 **批次质量管理** — 跟踪每批次的不良率和测试结果
-- 📑 **BOM 版本管理** — 统一物料清单管理，关联图纸
-- 🔧 **工艺参数追溯** — 记录打样工艺参数，方便后续复现
-- 📝 **报告自动生成** — 减少重复排版工作，一键生成测试报告
+- **ADR 0001 — 用 SQLite**：外键级联 + 事务，根治 1.0「删产品留孤儿记录」的坑。
+- **ADR 0002 — 现代栈 + 双适配器**：UI 只认 `DataPort`，演示 / 本地两套实现共用契约测试。
+- **ADR 0003 — 网格优先的台账录入**：一个网格整批录入，替代 1.0 的多次弹窗。
+- **ADR 0004 — 规格即类型化判定规则**：规格字符串解析成结构，UI 实时预览、校验、判定同源。
 
 ---
 
@@ -142,4 +147,4 @@ wire-cable-rd-manager/
 
 ## 💬 关于
 
-本项目是为线材研发岗位打造的零门槛数字化工具，旨在缩减文案录入时间、规范文档管理。如有问题或建议，欢迎提交 [Issue](https://github.com/xiaohai-uid/wire-cable-rd-manager/issues)！
+本项目是为线材研发岗位打造的零门槛质量数据工具，旨在减少重复录入、规范文档管理。如有问题或建议，欢迎提交 [Issue](https://github.com/xiaohai-uid/wire-cable-rd-manager/issues)！

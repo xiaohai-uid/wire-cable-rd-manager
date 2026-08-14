@@ -40,7 +40,7 @@
 | UI | React + Tailwind | 组件复用，样式不再靠复制 CSS 块 |
 | 表格 | TanStack Table | 台账是表格密集型应用，这是该场景的成熟解 |
 | 校验 | Zod | 前后端共用一份 schema，边界处强制校验 |
-| 后端 | Hono + better-sqlite3 | 保留 SQLite 单文件优势（见 ADR 0001） |
+| 后端 | Hono + node:sqlite（Node 24 内置） | 保留 SQLite 单文件优势，且免原生编译（见 ADR 0001） |
 | 测试 | Vitest | 判定逻辑必须有测试兜底 |
 
 **二、数据层抽象成 `DataPort` 接口，提供两个适配器**

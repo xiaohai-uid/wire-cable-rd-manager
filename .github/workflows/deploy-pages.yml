@@ -1,0 +1,62 @@
+name: Deploy Pages demo
+
+# 在线演示站（GitHub Pages）部署流水线。
+# 构建走「演示模式」：VITE_DATA_MODE 留空 → MemoryAdapter，数据只在浏览器内存里，
+# 刷新即还原。源码真实落盘的模式（HttpAdapter + SQLite）是本地 `npm run server` 的事，
+# 不在 Pages 上跑。详见 docs/adr/0002-modern-stack-dual-adapter.md。
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一个部署；新推送会取代进行中的部署。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 构建（Pages 子路径 + 演示模式）
+        run: npm run build
+        env:
+          # 决定 vite base = /wire-cable-rd-manager/（见 vite.config.ts）
+          DEPLOY_TARGET: pages
+          # VITE_DATA_MODE 不设置 → 默认 MemoryAdapter（演示模式）
+
+      - name: 关闭 Jekyll
+        run: touch dist/.nojekyll
+
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
