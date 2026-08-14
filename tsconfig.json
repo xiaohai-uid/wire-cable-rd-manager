@@ -5,7 +5,8 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "types": ["vite/client"],
+    // node 是给 vite.config.ts 里读 process.env 用的；显式列出，不依赖传递引入
+    "types": ["vite/client", "node"],
 
     "strict": true,
     "noUncheckedIndexedAccess": true,

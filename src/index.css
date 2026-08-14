@@ -1,21 +1,63 @@
 @import 'tailwindcss';
 
-/* 设计语言来自胜出的原型（变体 C）。这里只放全局基调，组件样式一律用 Tailwind 类。 */
+/**
+ * 设计 token 来自胜出的原型（变体 C，prototype/ledger-ui.PROTOTYPE.html）。
+ * 这里定义的是 Tailwind 主题变量，因此可以直接写 text-ink-3 / bg-fail-bg 这类类名。
+ *
+ * 基调：接近 Linear 的克制风格 —— 13px 正文、窄行距、大量留白靠间距而不是字号撑，
+ * 强调色只用一个（teal），红绿只用于判定结果。这是给天天盯表格的人用的界面。
+ */
 @theme {
-  --font-sans: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
-  --font-mono: 'SF Mono', 'Cascadia Mono', 'Consolas', monospace;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
+
+  --text-base: 0.8125rem; /* 13px，表格密集界面的正文尺寸 */
+
+  --color-canvas: #f7f7f8;
+  --color-panel: #ffffff;
+  --color-line: #e4e4e7;
+  --color-line-strong: #d4d4d8;
+
+  --color-ink: #18181b;
+  --color-ink-2: #52525b;
+  --color-ink-3: #8b8b93;
+
+  --color-accent: #0f766e;
+  --color-accent-soft: #f0fdfa;
+  --color-accent-line: #99f6e4;
+
+  --color-pass: #15803d;
+  --color-pass-bg: #f0fdf4;
+  --color-fail: #b91c1c;
+  --color-fail-bg: #fef2f2;
+  --color-warn: #a16207;
+  --color-warn-bg: #fefce8;
+
+  /* 热力图四档色阶：0% / ≤34% / ≤67% / >67%。档位边界与图例文案必须一致 */
+  --color-heat-0: #f0fdf4;
+  --color-heat-1: #fee2e2;
+  --color-heat-2: #fca5a5;
+  --color-heat-3: #ef4444;
+  /* 「该产品没有配这一项」—— 刻意做成灰白，与「测了且零不合格」的浅绿明显区分 */
+  --color-heat-na: #fafafa;
 }
 
 html {
-  /* 表格密集界面，禁用 iOS 上的字体自动放大 */
   -webkit-text-size-adjust: 100%;
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-canvas text-ink antialiased;
+  font-size: var(--text-base);
+  line-height: 1.5;
 }
 
-/* 测量值、阈值、批次号一律等宽 —— 数字要能上下对齐着扫。 */
+::selection {
+  background: var(--color-accent-line);
+}
+
+/* 测量值、阈值、批号、日期一律等宽 —— 数字要能上下对齐着扫。 */
 .tabular {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
