@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D24-brightgreen)](https://nodejs.org)
 [![SQLite](https://img.shields.io/badge/database-SQLite-blue)](https://sqlite.org)
-[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen)](docs/TEST-RESULTS.md)
+[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen)](https://github.com/xiaohai-uid/wire-cable-rd-manager/actions)
 
 ---
 
