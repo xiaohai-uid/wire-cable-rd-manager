@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  这是一次性原型（THROWAWAY PROTOTYPE），不是生产代码。
+  ----------------------------------------------------------------------------
+  回答的问题：「测试台账这块屏幕应该长什么样、以什么为中心组织？」
+
+  四个信息架构完全不同的变体，用 ?v=A|B|C|D 切换（底部浮动条 / ← → 方向键）：
+    A 批次工作台   —— 左侧批次列表 + 右侧录入网格，以「批次」为第一公民
+    B 沉浸录入台   —— 无侧栏，全宽大网格 + 右侧实时判定摘要，为录入速度服务
+    C 质量热力图   —— 首屏是 测试项 × 产品 的不良率矩阵，点格下钻，录入是附属动作
+    D 键盘优先     —— 近乎无 chrome 的超高密度表格 + Cmd/Ctrl+K 命令面板
+
+  数据是真的：取自旧仓库 seed-real-data.js（5 产品 / 52 测试模板项 / 6 批次 / 62 条记录 / 3 条不合格 / 不良率 4.84%）。
+  判定引擎按 ADR 0004 的正确解析方式实现（区分 比较符 / 数值 / 单位，不再剥字符）。
+
+  选定变体后：赢家重写进正式代码，本文件连同落选变体移到一次性分支，不留在 main。
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>台账 UI 原型 · 线材研发管理系统</title>
+<style>
+  :root{
+    --bg:#f7f7f8; --panel:#ffffff; --line:#e4e4e7; --line-strong:#d4d4d8;
+    --ink:#18181b; --ink-2:#52525b; --ink-3:#8b8b93;
+    --accent:#0f766e; --accent-soft:#f0fdfa; --accent-line:#99f6e4;
+    --pass:#15803d; --pass-bg:#f0fdf4; --fail:#b91c1c; --fail-bg:#fef2f2;
+    --warn:#a16207; --warn-bg:#fefce8;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--ink); font-size:13px; line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .num{font-family:var(--mono); font-variant-numeric:tabular-nums}
+  button{font:inherit; cursor:pointer; border:none; background:none; color:inherit}
+  input,select{font:inherit; color:inherit}
+  ::selection{background:var(--accent-line)}
+
+  /* ---------- 共享顶栏（只有它是共享的，布局各变体自己决定） ---------- */
+  .top{
+    height:44px; background:var(--panel); border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:20px; padding:0 16px;
+    position:sticky; top:0; z-index:50;
+  }
+  .brand{font-weight:650; letter-spacing:-.01em; font-size:13.5px; white-space:nowrap}
+  .brand em{font-style:normal; color:var(--accent)}
+  .top nav{display:flex; gap:2px}
+  .top nav a{
+    padding:5px 10px; border-radius:5px; color:var(--ink-2);
+    text-decoration:none; font-size:12.5px;
+  }
+  .top nav a:hover{background:#f4f4f5; color:var(--ink)}
+  .top nav a.on{background:#f4f4f5; color:var(--ink); font-weight:600}
+  .top .sp{flex:1}
+  .kbd{
+    font-family:var(--mono); font-size:10.5px; padding:2px 5px; border-radius:4px;
+    border:1px solid var(--line-strong); background:#fafafa; color:var(--ink-3);
+  }
+
+  /* ---------- 通用小件 ---------- */
+  .tag{
+    display:inline-flex; align-items:center; padding:1px 6px; border-radius:4px;
+    font-size:11px; font-weight:600; letter-spacing:.01em; white-space:nowrap;
+  }
+  .tag.pass{background:var(--pass-bg); color:var(--pass)}
+  .tag.fail{background:var(--fail-bg); color:var(--fail)}
+  .tag.wait{background:var(--warn-bg); color:var(--warn)}
+  .tag.none{background:#f4f4f5; color:var(--ink-3)}
+  .cellin{
+    width:100%; border:1px solid transparent; background:transparent; border-radius:4px;
+    padding:3px 6px; text-align:right; font-family:var(--mono);
+    font-variant-numeric:tabular-nums; outline:none;
+  }
+  .cellin:hover{border-color:var(--line-strong)}
+  .cellin:focus{border-color:var(--accent); background:#fff; box-shadow:0 0 0 2px var(--accent-soft)}
+  .cellin.bad{color:var(--fail); font-weight:600}
+  .qual{display:flex; gap:3px; justify-content:flex-end}
+  .qual button{
+    width:22px; height:20px; border-radius:4px; border:1px solid var(--line);
+    font-size:11px; color:var(--ink-3); background:#fff;
+  }
+  .qual button.on{background:var(--pass-bg); border-color:var(--pass); color:var(--pass); font-weight:700}
+  .qual button.on.no{background:var(--fail-bg); border-color:var(--fail); color:var(--fail)}
+
+  table{width:100%; border-collapse:collapse}
+  th{
+    text-align:left; font-weight:600; font-size:11px; color:var(--ink-3);
+    letter-spacing:.03em; text-transform:none; padding:6px 8px;
+    border-bottom:1px solid var(--line); background:var(--panel);
+    position:sticky; top:0; white-space:nowrap;
+  }
+  td{padding:0 8px; border-bottom:1px solid #f1f1f3; height:30px; vertical-align:middle}
+  tr.failrow td{background:var(--fail-bg)}
+  tr.failrow td:first-child{box-shadow:inset 2px 0 0 var(--fail)}
+  .r{text-align:right}
+
+  /* ---------- 浮动切换条 ---------- */
+  #sw{
+    position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+    display:flex; align-items:center; gap:2px; z-index:999;
+    background:#18181b; color:#fff; border-radius:999px; padding:4px;
+    box-shadow:0 8px 28px rgba(0,0,0,.28);
+    font-size:12px;
+  }
+  #sw button{width:28px; height:28px; border-radius:999px; color:#a1a1aa; font-size:14px}
+  #sw button:hover{background:#27272a; color:#fff}
+  #sw .lbl{padding:0 12px; white-space:nowrap; font-weight:600; letter-spacing:.01em}
+  #sw .lbl small{color:#a1a1aa; font-weight:400; margin-left:6px}
+  #sw .dots{display:flex; gap:4px; padding-right:8px}
+  #sw .dots i{width:5px; height:5px; border-radius:999px; background:#3f3f46}
+  #sw .dots i.on{background:#5eead4}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="sw">
+  <button id="swPrev" title="上一个变体 (←)">‹</button>
+  <span class="lbl" id="swLbl"></span>
+  <span class="dots" id="swDots"></span>
+  <button id="swNext" title="下一个变体 (→)">›</button>
+</div>
+
+<script>
+/* =====================================================================
+   1. 真实数据（取自旧仓库 seed-real-data.js，未做美化）
+   ===================================================================== */
+const PRODUCTS = [
+  {model:'RV-0.5',    name:'RV 0.5mm² 多股软电线',    drawing:'DRG-RV-0.5-V2.1',    std:'GB/T 5023.3-2008'},
+  {model:'RVV-3x1.5', name:'RVV 3×1.5mm² 护套线',     drawing:'DRG-RVV-3x1.5-V1.0', std:'GB/T 5023.5-2008'},
+  {model:'SYV-75-5',  name:'SYV 75-5 同轴电缆',        drawing:'DRG-SYV-75-5-V3.0',  std:'SJ/T 11138-1997'},
+  {model:'BV-2.5',    name:'BV 2.5mm² 单芯硬导体',     drawing:'DRG-BV-2.5-V1.2',    std:'GB/T 5023.3-2008'},
+  {model:'H05VV-F',   name:'H05VV-F 3G1.0mm² 欧标线', drawing:'DRG-H05VV-F-V2.0',   std:'EN 50525-2-11'},
+];
+
+const BATCHES = [
+  {date:'2026-06-21', model:'RV-0.5', batch:'RV-20260601', tester:'李明', data:[
+    {item:'导体电阻', spec:'≤0.5Ω',    v:[0.42,0.45,0.43]},
+    {item:'绝缘耐压', spec:'≥1500V',   v:[1800,1750,1820]},
+    {item:'绝缘电阻', spec:'≥100MΩ',   v:[250,220,260]},
+    {item:'外径尺寸', spec:'2.8±0.2mm',v:[2.85,2.82,2.88]},
+    {item:'绝缘厚度', spec:'≥0.6mm',   v:[0.68,0.65,0.70]},
+    {item:'伸长率',   spec:'≥120%',    v:[145,138,152]},
+    {item:'老化测试', spec:'≥80%',     v:[92,89,95]},
+    {item:'外观检查', spec:'合格',      v:[1,1,1]},
+    {item:'导通测试', spec:'合格',      v:[1,1,1]},
+    {item:'火花测试', spec:'≥3000V',   v:[3500,3400,3550]},
+  ]},
+  {date:'2026-06-22', model:'RV-0.5', batch:'RV-20260602', tester:'王芳', data:[
+    {item:'导体电阻', spec:'≤0.5Ω',    v:[0.48,0.52,0.49]},
+    {item:'绝缘耐压', spec:'≥1500V',   v:[1650,1700,1680]},
+    {item:'绝缘电阻', spec:'≥100MΩ',   v:[200,180,210]},
+    {item:'外径尺寸', spec:'2.8±0.2mm',v:[2.75,2.80,2.72]},
+    {item:'绝缘厚度', spec:'≥0.6mm',   v:[0.62,0.60,0.64]},
+    {item:'伸长率',   spec:'≥120%',    v:[130,125,135]},
+    {item:'老化测试', spec:'≥80%',     v:[88,85,90]},
+    {item:'外观检查', spec:'合格',      v:[1,1,1]},
+    {item:'导通测试', spec:'合格',      v:[1,1,1]},
+    {item:'火花测试', spec:'≥3000V',   v:[3200,3100,3300]},
+  ]},
+  {date:'2026-06-23', model:'RVV-3x1.5', batch:'RVV-20260601', tester:'李明', data:[
+    {item:'导体电阻',     spec:'≤0.524Ω',   v:[0.45,0.47,0.44]},
+    {item:'绝缘耐压',     spec:'≥2000V',    v:[2400,2350,2450]},
+    {item:'绝缘电阻',     spec:'≥100MΩ',    v:[180,190,175]},
+    {item:'护套厚度',     spec:'≥0.8mm',    v:[0.95,0.92,0.98]},
+    {item:'外径尺寸',     spec:'8.4±0.4mm', v:[8.30,8.35,8.25]},
+    {item:'绝缘厚度',     spec:'≥0.8mm',    v:[0.88,0.85,0.90]},
+    {item:'伸长率(绝缘)', spec:'≥100%',     v:[115,110,120]},
+    {item:'伸长率(护套)', spec:'≥100%',     v:[125,118,130]},
+    {item:'老化测试',     spec:'≥80%',      v:[90,87,93]},
+    {item:'外观检查',     spec:'合格',       v:[1,1,1]},
+    {item:'导通测试',     spec:'合格',       v:[1,1,1]},
+    {item:'曲挠试验',     spec:'≥20000次',  v:[28500,27500,29500]},
+  ]},
+  {date:'2026-06-24', model:'SYV-75-5', batch:'SYV-20260601', tester:'张伟', data:[
+    {item:'导体电阻',          spec:'≤0.5Ω',       v:[0.35,0.37,0.34]},
+    {item:'绝缘电阻',          spec:'≥5000MΩ·km',  v:[8500,8200,8800]},
+    {item:'特性阻抗',          spec:'75±3Ω',       v:[74.5,74.8,74.2]},
+    {item:'衰减常数(30MHz)',   spec:'≤0.22dB/m',   v:[0.18,0.19,0.17]},
+    {item:'衰减常数(200MHz)',  spec:'≤0.55dB/m',   v:[0.45,0.47,0.44]},
+    {item:'电容',              spec:'≤67pF/m',     v:[58,60,56]},
+    {item:'回波损耗',          spec:'≥20dB',       v:[18.5,19.2,17.8]},
+    {item:'护套厚度',          spec:'≥0.7mm',      v:[0.78,0.75,0.80]},
+    {item:'外径尺寸',          spec:'7.2±0.3mm',   v:[7.15,7.20,7.10]},
+    {item:'外观检查',          spec:'合格',         v:[1,1,1]},
+  ]},
+  {date:'2026-06-25', model:'BV-2.5', batch:'BV-20260601', tester:'王芳', data:[
+    {item:'导体电阻',   spec:'≤0.727Ω',  v:[0.62,0.65,0.60]},
+    {item:'绝缘耐压',   spec:'≥2500V',   v:[3000,2950,3050]},
+    {item:'绝缘电阻',   spec:'≥100MΩ',   v:[300,280,320]},
+    {item:'绝缘厚度',   spec:'≥0.8mm',   v:[0.92,0.90,0.95]},
+    {item:'外径尺寸',   spec:'3.7±0.2mm',v:[3.75,3.72,3.80]},
+    {item:'伸长率',     spec:'≥120%',    v:[135,128,140]},
+    {item:'老化测试',   spec:'≥80%',     v:[72,68,75]},
+    {item:'外观检查',   spec:'合格',      v:[1,1,1]},
+    {item:'不延燃试验', spec:'合格',      v:[1,1,1]},
+  ]},
+  {date:'2026-06-26', model:'H05VV-F', batch:'H05VV-20260601', tester:'李明', data:[
+    {item:'导体电阻', spec:'≤0.524Ω',  v:[0.42,0.44,0.41]},
+    {item:'绝缘耐压', spec:'≥2000V',   v:[2500,2450,2550]},
+    {item:'绝缘电阻', spec:'≥100MΩ',   v:[220,200,240]},
+    {item:'护套厚度', spec:'≥0.6mm',   v:[0.72,0.70,0.75]},
+    {item:'外径尺寸', spec:'6.8±0.4mm',v:[6.65,6.70,6.60]},
+    {item:'绝缘厚度', spec:'≥0.6mm',   v:[0.68,0.65,0.70]},
+    {item:'伸长率',   spec:'≥100%',    v:[118,112,122]},
+    {item:'老化测试', spec:'≥80%',     v:[92,89,94]},
+    {item:'外观检查', spec:'合格',      v:[1,1,1]},
+    {item:'耐压测试', spec:'≥2000V',   v:[2600,2550,2650]},
+    {item:'曲挠试验', spec:'≥30000次', v:[38500,37500,39500]},
+  ]},
+];
+
+/* =====================================================================
+   2. 判定引擎 —— 按 ADR 0004 实现：显式区分 比较符 / 数值 / 单位
+      旧版 s.replace(/[^0-9.]/g,'') 会把 ≥1.5mm2 读成 1.52，这里不会。
+   ===================================================================== */
+const NUM = '(-?\\d+(?:\\.\\d+)?)';
+function parseSpec(raw){
+  const s = String(raw ?? '').trim();
+  if(!s) return {kind:'none'};
+  if(/^(合格|通过|OK|PASS)$/i.test(s)) return {kind:'qualitative', expected:s};
+  let m;
+  if(m = s.match(new RegExp('^[≤<]=?\\s*'+NUM+'\\s*(.*)$')))            return {kind:'max',       limit:+m[1], unit:m[2].trim()};
+  if(m = s.match(new RegExp('^[≥>]=?\\s*'+NUM+'\\s*(.*)$')))            return {kind:'min',       limit:+m[1], unit:m[2].trim()};
+  if(m = s.match(new RegExp('^'+NUM+'\\s*±\\s*'+NUM+'\\s*(.*)$')))      return {kind:'tolerance', center:+m[1], tol:+m[2], unit:m[3].trim()};
+  if(m = s.match(new RegExp('^'+NUM+'\\s*[~～]\\s*'+NUM+'\\s*(.*)$')))  return {kind:'range',     lower:+m[1], upper:+m[2], unit:m[3].trim()};
+  return {kind:'unparseable', raw:s};
+}
+const r4 = n => Math.round(n*1e4)/1e4;
+function judge(rule, vals){
+  const nums = vals.filter(v => v!==null && v!=='' && !isNaN(v)).map(Number);
+  if(!nums.length) return {verdict:'未录', avg:null};
+  const avg = r4(nums.reduce((a,b)=>a+b,0)/nums.length);
+  const all = f => nums.every(f) ? '合格' : '不合格';
+  switch(rule.kind){
+    case 'max':         return {verdict:all(v=>v<=rule.limit), avg};
+    case 'min':         return {verdict:all(v=>v>=rule.limit), avg};
+    case 'tolerance':   return {verdict:all(v=>v>=rule.center-rule.tol && v<=rule.center+rule.tol), avg};
+    case 'range':       return {verdict:all(v=>v>=rule.lower && v<=rule.upper), avg};
+    case 'qualitative': return {verdict:all(v=>v===1), avg:null};
+    case 'unparseable': return {verdict:'规格无法识别', avg};
+    default:            return {verdict:'待判定', avg};
+  }
+}
+/** 单个测量值是否越界（用于把具体那个数标红，而不是整行含糊标红） */
+function valBad(rule, v){
+  if(v===null||v===''||isNaN(v)) return false;
+  const n = +v;
+  switch(rule.kind){
+    case 'max':       return n > rule.limit;
+    case 'min':       return n < rule.limit;
+    case 'tolerance': return n < rule.center-rule.tol || n > rule.center+rule.tol;
+    case 'range':     return n < rule.lower || n > rule.upper;
+    default:          return false;
+  }
+}
+
+/* 派生：给每个批次/每行算好判定 */
+const MODEL = Object.fromEntries(PRODUCTS.map(p=>[p.model,p]));
+BATCHES.forEach((b,bi)=>{
+  b.id = bi;
+  b.product = MODEL[b.model];
+  b.data.forEach(row=>{
+    row.rule = parseSpec(row.spec);
+    const j = judge(row.rule, row.v);
+    row.verdict = j.verdict; row.avg = j.avg;
+    row.qualitative = row.rule.kind === 'qualitative';
+  });
+  b.fail  = b.data.filter(r=>r.verdict==='不合格').length;
+  b.total = b.data.length;
+  b.rate  = b.total ? b.fail/b.total*100 : 0;
+});
+const ALL_ROWS = BATCHES.flatMap(b=>b.data.map(r=>({...r, batch:b.batch, model:b.model, date:b.date, tester:b.tester})));
+const STAT = {
+  total: ALL_ROWS.length,
+  fail:  ALL_ROWS.filter(r=>r.verdict==='不合格').length,
+};
+STAT.pass = STAT.total - STAT.fail;
+STAT.rate = (STAT.fail/STAT.total*100);
+
+/* =====================================================================
+   3. 小工具
+   ===================================================================== */
+const h = (html) => { const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstElementChild; };
+const esc = s => String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = n => n===null||n===undefined ? '—' : (typeof n==='number' ? String(n) : n);
+function verdictTag(v){
+  const cls = v==='合格'?'pass' : v==='不合格'?'fail' : v==='未录'?'none' : 'wait';
+  return `<span class="tag ${cls}">${esc(v)}</span>`;
+}
+function topbar(active){
+  return `
+  <div class="top">
+    <span class="brand">线材研发<em>·</em>管理系统</span>
+    <nav>
+      <a href="#">仪表盘</a>
+      <a href="#" class="${active==='ledger'?'on':''}">测试台账</a>
+      <a href="#">产品</a><a href="#">BOM</a><a href="#">工艺记录</a><a href="#">测试报告</a>
+    </nav>
+    <span class="sp"></span>
+    <span class="kbd">Ctrl K</span>
+  </div>`;
+}
+/** 网格键盘导航：Enter/↑↓ 上下移动，Tab 天然左右移动 */
+function wireGridKeys(root){
+  root.addEventListener('keydown', e=>{
+    if(!(e.target instanceof HTMLInputElement)) return;
+    if(e.key!=='Enter' && e.key!=='ArrowUp' && e.key!=='ArrowDown') return;
+    e.preventDefault(); e.stopPropagation();
+    const cells = [...root.querySelectorAll('input.cellin')];
+    const i = cells.indexOf(e.target);
+    const cols = +root.dataset.cols || 3;
+    const next = (e.key==='ArrowUp') ? i-cols : i+cols;
+    if(cells[next]){ cells[next].focus(); cells[next].select(); }
+  });
+}
+
+/* =====================================================================
+   变体 A —— 批次工作台：左侧批次列表 + 右侧录入网格
+   信息架构：以「批次」为第一公民。查看与录入同屏，左选右填。
+   主要交互对象：右侧网格单元格。
+   ===================================================================== */
+function VariantA(){
+  let sel = 1; // 默认选中有不合格项的批次，便于看到异常态
+  const el = h(`<div>
+    ${topbar('ledger')}
+    <div style="display:grid; grid-template-columns:268px 1fr; height:calc(100vh - 44px)">
+      <aside style="border-right:1px solid var(--line); background:var(--panel); overflow:auto">
+        <div style="padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between">
+          <b style="font-size:12.5px">测试批次</b>
+          <button style="color:var(--accent); font-weight:600; font-size:12px">+ 新建</button>
+        </div>
+        <div id="blist"></div>
+        <div style="padding:12px 14px; border-top:1px solid var(--line); color:var(--ink-3); font-size:11.5px">
+          共 ${BATCHES.length} 批次 · ${STAT.total} 条记录<br>
+          整体不良率 <b class="num" style="color:var(--fail)">${STAT.rate.toFixed(2)}%</b>
+        </div>
+      </aside>
+      <main style="overflow:auto" id="pane"></main>
+    </div>
+  </div>`);
+
+  const renderList = ()=>{
+    el.querySelector('#blist').innerHTML = BATCHES.map(b=>`
+      <button data-b="${b.id}" style="
+        display:block; width:100%; text-align:left; padding:9px 14px;
+        border-bottom:1px solid #f4f4f5; border-left:2px solid ${b.id===sel?'var(--accent)':'transparent'};
+        background:${b.id===sel?'var(--accent-soft)':'transparent'}">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:6px">
+          <b style="font-size:12.5px">${esc(b.model)}</b>
+          ${b.fail ? `<span class="tag fail">${b.fail} 不合格</span>` : `<span class="tag pass">全合格</span>`}
+        </div>
+        <div class="num" style="color:var(--ink-3); font-size:11px; margin-top:2px">${esc(b.batch)}</div>
+        <div style="color:var(--ink-3); font-size:11px">${b.date} · ${esc(b.tester)} · ${b.total} 项</div>
+      </button>`).join('');
+    el.querySelectorAll('#blist button[data-b]').forEach(btn=>{
+      btn.onclick = ()=>{ sel = +btn.dataset.b; renderList(); renderPane(); };
+    });
+  };
+
+  const renderPane = ()=>{
+    const b = BATCHES[sel];
+    const pane = el.querySelector('#pane');
+    pane.innerHTML = `
+      <div style="padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel)">
+        <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap">
+          <h1 style="font-size:16px; font-weight:650; letter-spacing:-.01em">${esc(b.model)}</h1>
+          <span class="num" style="color:var(--ink-2)">${esc(b.batch)}</span>
+          <span style="color:var(--ink-3)">${esc(b.product.name)}</span>
+        </div>
+        <div style="color:var(--ink-3); font-size:11.5px; margin-top:3px">
+          ${esc(b.product.drawing)} · ${esc(b.product.std)} · 测试日 ${b.date} · 测试员 ${esc(b.tester)}
+        </div>
+      </div>
+      <div style="display:flex; gap:18px; padding:10px 18px; border-bottom:1px solid var(--line); background:var(--panel); align-items:center">
+        <span>合格 <b class="num" style="color:var(--pass)">${b.total-b.fail}</b></span>
+        <span>不合格 <b class="num" style="color:var(--fail)">${b.fail}</b></span>
+        <span>不良率 <b class="num" style="color:${b.fail?'var(--fail)':'var(--pass)'}">${b.rate.toFixed(1)}%</b></span>
+        <span style="flex:1"></span>
+        <button style="border:1px solid var(--line-strong); padding:4px 10px; border-radius:5px; background:#fff">从 Excel 粘贴</button>
+        <button style="background:var(--accent); color:#fff; padding:5px 14px; border-radius:5px; font-weight:600">保存整批 (${b.total} 行)</button>
+      </div>
+      <div data-cols="3" id="gridA" style="padding:0 18px 80px">
+        <table>
+          <thead><tr>
+            <th style="width:26px">#</th><th>测试项目</th><th>规格要求</th>
+            <th class="r" style="width:92px">值 1</th><th class="r" style="width:92px">值 2</th><th class="r" style="width:92px">值 3</th>
+            <th class="r" style="width:88px">平均</th><th style="width:84px">判定</th>
+          </tr></thead>
+          <tbody>${b.data.map((r,i)=>rowA(r,i)).join('')}</tbody>
+        </table>
+      </div>`;
+    wireGridKeys(pane.querySelector('#gridA'));
+  };
+
+  const rowA = (r,i)=>`
+    <tr class="${r.verdict==='不合格'?'failrow':''}">
+      <td class="num" style="color:var(--ink-3)">${i+1}</td>
+      <td>${esc(r.item)}</td>
+      <td class="num" style="color:var(--ink-2)">${esc(r.spec)}</td>
+      ${r.qualitative
+        ? `<td colspan="3"><div class="qual">
+             <button class="on">合格</button><button class="no">不合格</button>
+           </div></td>`
+        : r.v.map(v=>`<td><input class="cellin ${valBad(r.rule,v)?'bad':''}" value="${v}"></td>`).join('')}
+      <td class="r num" style="color:var(--ink-2)">${fmt(r.avg)}</td>
+      <td>${verdictTag(r.verdict)}</td>
+    </tr>`;
+
+  renderList(); renderPane();
+  return el;
+}
+
+/* =====================================================================
+   变体 B —— 沉浸录入台：无侧栏，全宽大网格 + 右侧实时判定摘要
+   信息架构：为「一次把一个批次录完」这一件事服务，其余全部让位。
+   主要交互对象：加大的网格 + 右侧摘要（不合格项可点击定位）。
+   ===================================================================== */
+function VariantB(){
+  const b = BATCHES[3]; // SYV-75-5，有一条回波损耗不合格
+  const el = h(`<div>
+    ${topbar('ledger')}
+    <div style="display:grid; grid-template-columns:1fr 244px; height:calc(100vh - 44px)">
+      <div style="overflow:auto; padding-bottom:76px">
+        <!-- 批次上下文条：录入前先确定「这是哪一批」 -->
+        <div style="background:var(--panel); border-bottom:1px solid var(--line); padding:12px 22px; display:flex; gap:22px; flex-wrap:wrap">
+          ${[['产品型号',b.model],['批号',b.batch],['测试日期',b.date],['测试员',b.tester],['图纸',b.product.drawing]]
+            .map(([k,v])=>`<label style="display:block">
+              <span style="display:block; font-size:10.5px; color:var(--ink-3); letter-spacing:.03em; margin-bottom:2px">${k}</span>
+              <input value="${esc(v)}" style="border:1px solid var(--line); border-radius:5px; padding:4px 8px; width:150px; font-family:var(--mono); font-size:12px">
+            </label>`).join('')}
+        </div>
+        <div style="padding:16px 22px 0">
+          <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px">
+            <h1 style="font-size:15px; font-weight:650">录入 · ${esc(b.product.name)}</h1>
+            <span style="color:var(--ink-3); font-size:11.5px">Tab 横向 · Enter/↑↓ 纵向 · 共 ${b.data.filter(r=>!r.qualitative).length*3} 个数值格</span>
+          </div>
+        </div>
+        <div data-cols="3" id="gridB" style="padding:0 22px"></div>
+      </div>
+
+      <!-- 右侧实时摘要：录入过程中就知道哪项出问题 -->
+      <aside style="border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:16px 14px">
+        <div style="font-size:10.5px; color:var(--ink-3); letter-spacing:.04em; margin-bottom:10px">实时判定</div>
+        <div id="sumB"></div>
+      </aside>
+    </div>
+
+    <!-- 底部固定操作条 -->
+    <div style="position:fixed; bottom:0; left:0; right:244px; background:var(--panel);
+                border-top:1px solid var(--line); padding:10px 22px; display:flex; gap:10px; align-items:center">
+      <button style="border:1px solid var(--line-strong); padding:6px 12px; border-radius:5px; background:#fff">从 Excel 粘贴</button>
+      <button style="border:1px solid var(--line-strong); padding:6px 12px; border-radius:5px; background:#fff">载入上批数值</button>
+      <span style="flex:1"></span>
+      <span style="color:var(--ink-3); font-size:11.5px" id="dirtyB"></span>
+      <button style="background:var(--accent); color:#fff; padding:7px 18px; border-radius:5px; font-weight:600">保存整批</button>
+    </div>
+  </div>`);
+
+  const grid = el.querySelector('#gridB');
+  const draw = ()=>{
+    grid.innerHTML = `<table>
+      <thead><tr>
+        <th>测试项目</th><th>规格要求</th>
+        <th class="r" style="width:104px">值 1</th><th class="r" style="width:104px">值 2</th><th class="r" style="width:104px">值 3</th>
+        <th class="r" style="width:96px">平均</th><th style="width:92px">判定</th>
+      </tr></thead>
+      <tbody>${b.data.map((r,i)=>`
+        <tr id="rowB${i}" class="${r.verdict==='不合格'?'failrow':''}" style="height:38px">
+          <td style="font-size:13.5px">${esc(r.item)}</td>
+          <td class="num" style="color:var(--ink-2)">${esc(r.spec)}</td>
+          ${r.qualitative
+            ? `<td colspan="3"><div class="qual"><button class="on">合格</button><button class="no">不合格</button></div></td>`
+            : r.v.map(v=>`<td><input class="cellin ${valBad(r.rule,v)?'bad':''}" value="${v}" style="font-size:14px; padding:5px 8px"></td>`).join('')}
+          <td class="r num" style="color:var(--ink-2); font-size:13.5px">${fmt(r.avg)}</td>
+          <td>${verdictTag(r.verdict)}</td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    wireGridKeys(grid);
+  };
+  const drawSum = ()=>{
+    const fails = b.data.filter(r=>r.verdict==='不合格');
+    el.querySelector('#sumB').innerHTML = `
+      <div style="display:grid; gap:8px; margin-bottom:16px">
+        ${[['合格', b.total-b.fail, 'var(--pass)'],['不合格', b.fail, 'var(--fail)'],['不良率', b.rate.toFixed(1)+'%', b.fail?'var(--fail)':'var(--pass)']]
+          .map(([k,v,c])=>`<div style="display:flex; justify-content:space-between; align-items:baseline">
+            <span style="color:var(--ink-2)">${k}</span><b class="num" style="font-size:19px; color:${c}">${v}</b></div>`).join('')}
+      </div>
+      <div style="height:1px; background:var(--line); margin:14px 0"></div>
+      <div style="font-size:10.5px; color:var(--ink-3); letter-spacing:.04em; margin-bottom:8px">需要处理</div>
+      ${fails.length ? fails.map(r=>{
+        const i = b.data.indexOf(r);
+        return `<button data-go="${i}" style="display:block; width:100%; text-align:left; padding:8px 10px; border-radius:6px;
+                  background:var(--fail-bg); border:1px solid #fecaca; margin-bottom:6px">
+          <b style="color:var(--fail); font-size:12.5px">${esc(r.item)}</b>
+          <div class="num" style="color:var(--ink-2); font-size:11px; margin-top:2px">
+            实测 ${r.v.join(' / ')} · 要求 ${esc(r.spec)}
+          </div>
+        </button>`;}).join('')
+        : `<div style="color:var(--ink-3); font-size:12px">全部合格</div>`}
+      <div style="height:1px; background:var(--line); margin:14px 0"></div>
+      <button style="width:100%; border:1px solid var(--line-strong); border-radius:6px; padding:7px; background:#fff; font-weight:600">
+        保存并生成报告
+      </button>`;
+    el.querySelectorAll('#sumB button[data-go]').forEach(btn=>{
+      btn.onclick = ()=>{
+        const row = el.querySelector('#rowB'+btn.dataset.go);
+        row.scrollIntoView({behavior:'smooth', block:'center'});
+        const inp = row.querySelector('input.cellin'); if(inp){ inp.focus(); inp.select(); }
+      };
+    });
+  };
+  el.querySelector('#dirtyB').textContent = `${b.total} 行待保存`;
+  draw(); drawSum();
+  return el;
+}
+
+/* =====================================================================
+   变体 C —— 质量热力图：首屏是 测试项 × 产品 的不良率矩阵
+   信息架构：把系统当「质量分析工具」，录入退为右上角的附属动作。
+   主要交互对象：热力图格子（点击下钻到明细）。
+   ===================================================================== */
+function VariantC(){
+  // 聚合：每个 (测试项, 产品) 组合的记录与不合格数
+  const cellMap = new Map();
+  ALL_ROWS.forEach(r=>{
+    const k = r.item+'||'+r.model;
+    if(!cellMap.has(k)) cellMap.set(k, {rows:[], fail:0});
+    const c = cellMap.get(k); c.rows.push(r); if(r.verdict==='不合格') c.fail++;
+  });
+  const items = [...new Set(ALL_ROWS.map(r=>r.item))];
+  const models = PRODUCTS.map(p=>p.model);
+
+  const shade = (c)=>{
+    if(!c) return {bg:'#fafafa', fg:'#d4d4d8', txt:''};
+    const rate = c.fail/c.rows.length;
+    if(rate===0)   return {bg:'#f0fdf4', fg:'#15803d', txt:'✓'};
+    if(rate<=0.34) return {bg:'#fee2e2', fg:'#b91c1c', txt:Math.round(rate*100)+'%'};
+    if(rate<=0.67) return {bg:'#fca5a5', fg:'#7f1d1d', txt:Math.round(rate*100)+'%'};
+    return {bg:'#ef4444', fg:'#fff', txt:Math.round(rate*100)+'%'};
+  };
+
+  const el = h(`<div>
+    ${topbar('ledger')}
+    <div style="max-width:1160px; margin:0 auto; padding:20px 20px 90px">
+      <div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:16px; gap:16px; flex-wrap:wrap">
+        <div>
+          <h1 style="font-size:17px; font-weight:650; letter-spacing:-.01em">质量矩阵</h1>
+          <p style="color:var(--ink-3); font-size:12px; margin-top:2px">
+            ${STAT.total} 条记录 · ${items.length} 个测试项 × ${models.length} 个产品 · 颜色深浅代表该组合的不良率
+          </p>
+        </div>
+        <div style="display:flex; gap:8px">
+          <button style="border:1px solid var(--line-strong); padding:6px 12px; border-radius:5px; background:#fff">导出 CSV</button>
+          <button style="background:var(--accent); color:#fff; padding:7px 16px; border-radius:5px; font-weight:600">+ 录入新批次</button>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:18px; margin-bottom:16px">
+        ${[['总记录',STAT.total,'var(--ink)'],['合格',STAT.pass,'var(--pass)'],['不合格',STAT.fail,'var(--fail)'],['不良率',STAT.rate.toFixed(2)+'%','var(--fail)']]
+          .map(([k,v,c])=>`<div style="background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 16px; min-width:110px">
+            <div style="font-size:10.5px; color:var(--ink-3); letter-spacing:.04em">${k}</div>
+            <div class="num" style="font-size:22px; font-weight:650; color:${c}; letter-spacing:-.02em">${v}</div>
+          </div>`).join('')}
+      </div>
+
+      <div style="background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:auto">
+        <table style="font-size:12px">
+          <thead><tr>
+            <th style="min-width:150px; position:sticky; left:0; background:var(--panel); z-index:2">测试项目</th>
+            ${models.map(m=>`<th class="r" style="min-width:104px; text-align:center">${esc(m)}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${items.map(it=>`<tr>
+              <td style="position:sticky; left:0; background:var(--panel); font-weight:500; border-right:1px solid var(--line)">${esc(it)}</td>
+              ${models.map(m=>{
+                const c = cellMap.get(it+'||'+m); const s = shade(c);
+                return `<td style="padding:3px; text-align:center">
+                  <button ${c?`data-cell="${esc(it)}||${esc(m)}"`:'disabled'} style="
+                    width:100%; height:26px; border-radius:4px; background:${s.bg}; color:${s.fg};
+                    font-family:var(--mono); font-size:11px; font-weight:600;
+                    cursor:${c?'pointer':'default'}">${s.txt}</button></td>`;
+              }).join('')}
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div id="drillC" style="margin-top:16px"></div>
+    </div>
+  </div>`);
+
+  const drill = el.querySelector('#drillC');
+  const showDrill = (key)=>{
+    const [it,m] = key.split('||');
+    const c = cellMap.get(key);
+    drill.innerHTML = `
+      <div style="background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden">
+        <div style="padding:11px 16px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:10px">
+          <b style="font-size:13.5px">${esc(it)}</b>
+          <span style="color:var(--ink-3)">${esc(m)}</span>
+          <span style="flex:1"></span>
+          <span style="color:var(--ink-3); font-size:11.5px">${c.rows.length} 次测试 · ${c.fail} 次不合格</span>
+        </div>
+        <table>
+          <thead><tr><th>日期</th><th>批号</th><th>规格</th>
+            <th class="r">值 1</th><th class="r">值 2</th><th class="r">值 3</th><th class="r">平均</th><th>判定</th><th>测试员</th></tr></thead>
+          <tbody>${c.rows.map(r=>`<tr class="${r.verdict==='不合格'?'failrow':''}">
+            <td class="num">${r.date}</td><td class="num">${esc(r.batch)}</td>
+            <td class="num" style="color:var(--ink-2)">${esc(r.spec)}</td>
+            ${r.qualitative ? `<td colspan="3" style="color:var(--ink-3)">定性判定</td>`
+              : r.v.map(v=>`<td class="r num" style="${valBad(r.rule,v)?'color:var(--fail); font-weight:600':''}">${v}</td>`).join('')}
+            <td class="r num">${fmt(r.avg)}</td><td>${verdictTag(r.verdict)}</td><td>${esc(r.tester)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>`;
+    drill.scrollIntoView({behavior:'smooth', block:'nearest'});
+  };
+  el.querySelectorAll('button[data-cell]').forEach(b=>{ b.onclick = ()=>showDrill(b.dataset.cell); });
+  showDrill('回波损耗||SYV-75-5'); // 默认展开那条真实的不合格项
+  return el;
+}
+
+/* =====================================================================
+   变体 D —— 键盘优先：近乎无 chrome 的超高密度平表 + Cmd/Ctrl+K 命令面板
+   信息架构：所有 62 条记录平铺一张表，行高 26px，一屏尽可能多。
+   主要交互对象：命令面板（新建/筛选/跳转/生成报告全部走它）。
+   ===================================================================== */
+function VariantD(){
+  let filter = '';
+  const el = h(`<div>
+    <div style="height:34px; background:var(--panel); border-bottom:1px solid var(--line);
+                display:flex; align-items:center; gap:12px; padding:0 12px; position:sticky; top:0; z-index:40">
+      <span style="font-weight:650; font-size:12px">台账</span>
+      <span class="num" style="color:var(--ink-3); font-size:11.5px" id="cntD"></span>
+      <span style="flex:1"></span>
+      <button id="openK" style="display:flex; align-items:center; gap:6px; color:var(--ink-3); font-size:11.5px">
+        搜索或执行命令 <span class="kbd">Ctrl K</span>
+      </button>
+    </div>
+    <div style="padding:8px 12px; display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--line); background:var(--panel)">
+      ${['全部','仅不合格','RV-0.5','RVV-3x1.5','SYV-75-5','BV-2.5','H05VV-F']
+        .map((f,i)=>`<button data-f="${esc(f)}" style="padding:2px 9px; border-radius:999px; font-size:11.5px;
+          border:1px solid ${i===0?'var(--ink)':'var(--line-strong)'}; background:${i===0?'var(--ink)':'#fff'};
+          color:${i===0?'#fff':'var(--ink-2)'}">${f}</button>`).join('')}
+    </div>
+    <div id="tblD" data-cols="3" style="padding-bottom:80px"></div>
+
+    <!-- 命令面板 -->
+    <div id="kbar" style="display:none; position:fixed; inset:0; background:rgba(24,24,27,.32); z-index:900; padding-top:14vh">
+      <div style="max-width:520px; margin:0 auto; background:#fff; border-radius:10px; overflow:hidden;
+                  box-shadow:0 24px 60px rgba(0,0,0,.28)">
+        <input id="kin" placeholder="输入命令或搜索批号 / 产品 / 测试项…" autocomplete="off"
+               style="width:100%; border:none; outline:none; padding:14px 16px; font-size:14px; border-bottom:1px solid var(--line)">
+        <div id="klist" style="max-height:320px; overflow:auto; padding:6px"></div>
+      </div>
+    </div>
+  </div>`);
+
+  const CMDS = [
+    {t:'新建测试批次',        s:'录入', k:'N'},
+    {t:'只看不合格记录',      s:'筛选', k:'F'},
+    {t:'从 Excel 粘贴导入',   s:'导入'},
+    {t:'导出当前视图为 CSV',  s:'导出'},
+    {t:'为选中批次生成报告',  s:'报告', k:'R'},
+    {t:'跳转到 BOM 管理',     s:'跳转'},
+    {t:'跳转到工艺记录',      s:'跳转'},
+  ];
+
+  const rows = ()=>{
+    if(filter==='仅不合格') return ALL_ROWS.filter(r=>r.verdict==='不合格');
+    if(filter && filter!=='全部') return ALL_ROWS.filter(r=>r.model===filter);
+    return ALL_ROWS;
+  };
+  const drawTbl = ()=>{
+    const rs = rows();
+    el.querySelector('#cntD').textContent = `${rs.length} 行 · 不合格 ${rs.filter(r=>r.verdict==='不合格').length}`;
+    el.querySelector('#tblD').innerHTML = `<table style="font-size:12px">
+      <thead><tr style="height:26px">
+        <th>日期</th><th>产品</th><th>批号</th><th>测试项目</th><th>规格</th>
+        <th class="r" style="width:74px">值1</th><th class="r" style="width:74px">值2</th><th class="r" style="width:74px">值3</th>
+        <th class="r" style="width:78px">平均</th><th style="width:74px">判定</th><th>测试员</th>
+      </tr></thead>
+      <tbody>${rs.map(r=>`<tr class="${r.verdict==='不合格'?'failrow':''}" style="height:26px">
+        <td class="num" style="color:var(--ink-3)">${r.date.slice(5)}</td>
+        <td style="font-weight:500">${esc(r.model)}</td>
+        <td class="num" style="color:var(--ink-2)">${esc(r.batch)}</td>
+        <td>${esc(r.item)}</td>
+        <td class="num" style="color:var(--ink-3)">${esc(r.spec)}</td>
+        ${r.qualitative ? `<td colspan="3" class="r" style="color:var(--ink-3)">定性</td>`
+          : r.v.map(v=>`<td style="padding:0 2px"><input class="cellin ${valBad(r.rule,v)?'bad':''}" value="${v}" style="padding:1px 5px; font-size:12px"></td>`).join('')}
+        <td class="r num" style="color:var(--ink-2)">${fmt(r.avg)}</td>
+        <td>${verdictTag(r.verdict)}</td>
+        <td style="color:var(--ink-2)">${esc(r.tester)}</td>
+      </tr>`).join('')}</tbody></table>`;
+    wireGridKeys(el.querySelector('#tblD'));
+  };
+
+  el.querySelectorAll('button[data-f]').forEach(btn=>{
+    btn.onclick = ()=>{
+      filter = btn.dataset.f;
+      el.querySelectorAll('button[data-f]').forEach(o=>{
+        const on = o===btn;
+        o.style.background = on?'var(--ink)':'#fff';
+        o.style.color = on?'#fff':'var(--ink-2)';
+        o.style.borderColor = on?'var(--ink)':'var(--line-strong)';
+      });
+      drawTbl();
+    };
+  });
+
+  // 命令面板
+  const kbar = el.querySelector('#kbar'), kin = el.querySelector('#kin'), klist = el.querySelector('#klist');
+  const drawK = ()=>{
+    const q = kin.value.trim().toLowerCase();
+    const cmds = CMDS.filter(c=>!q || c.t.toLowerCase().includes(q));
+    const hits = q ? ALL_ROWS.filter(r=>
+      (r.batch+r.model+r.item).toLowerCase().includes(q)).slice(0,6) : [];
+    klist.innerHTML =
+      (cmds.length?`<div style="font-size:10.5px; color:var(--ink-3); padding:6px 10px; letter-spacing:.04em">命令</div>`:'') +
+      cmds.map(c=>`<div style="display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:6px">
+        <span class="tag none">${c.s}</span><span style="flex:1">${esc(c.t)}</span>
+        ${c.k?`<span class="kbd">${c.k}</span>`:''}</div>`).join('') +
+      (hits.length?`<div style="font-size:10.5px; color:var(--ink-3); padding:6px 10px; letter-spacing:.04em">记录</div>`:'') +
+      hits.map(r=>`<div style="display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:6px">
+        ${verdictTag(r.verdict)}<span style="flex:1">${esc(r.item)} <span style="color:var(--ink-3)">${esc(r.model)}</span></span>
+        <span class="num" style="color:var(--ink-3); font-size:11px">${esc(r.batch)}</span></div>`).join('') ||
+      (cmds.length?'':`<div style="padding:14px 10px; color:var(--ink-3)">无匹配</div>`);
+    [...klist.children].forEach(c=>{
+      c.onmouseenter = ()=>c.style.background='var(--accent-soft)';
+      c.onmouseleave = ()=>c.style.background='transparent';
+    });
+  };
+  const openK = ()=>{ kbar.style.display='block'; kin.value=''; drawK(); kin.focus(); };
+  const closeK = ()=>{ kbar.style.display='none'; };
+  el.querySelector('#openK').onclick = openK;
+  kin.oninput = drawK;
+  kbar.onclick = e=>{ if(e.target===kbar) closeK(); };
+  el._onKey = e=>{
+    if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){ e.preventDefault(); openK(); }
+    if(e.key==='Escape') closeK();
+  };
+  document.addEventListener('keydown', el._onKey);
+
+  drawTbl();
+  return el;
+}
+
+/* =====================================================================
+   4. 切换器
+   ===================================================================== */
+const VARIANTS = [
+  {k:'A', name:'批次工作台 · 左列表右网格', build:VariantA},
+  {k:'B', name:'沉浸录入台 · 全宽网格+实时摘要', build:VariantB},
+  {k:'C', name:'质量热力图 · 矩阵下钻', build:VariantC},
+  {k:'D', name:'键盘优先 · 高密度表+命令面板', build:VariantD},
+];
+let cur = 0, mounted = null;
+
+function mount(i){
+  const v = VARIANTS[i];
+  if(mounted && mounted._onKey) document.removeEventListener('keydown', mounted._onKey);
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  mounted = v.build();
+  app.appendChild(mounted);
+  window.scrollTo(0,0);
+  document.getElementById('swLbl').innerHTML = `${v.k} <small>${esc(v.name)}</small>`;
+  document.getElementById('swDots').innerHTML = VARIANTS.map((_,j)=>`<i class="${j===i?'on':''}"></i>`).join('');
+  const u = new URL(location); u.searchParams.set('v', v.k); history.replaceState(null,'',u);
+  cur = i;
+}
+const go = d => mount((cur + d + VARIANTS.length) % VARIANTS.length);
+document.getElementById('swPrev').onclick = ()=>go(-1);
+document.getElementById('swNext').onclick = ()=>go(1);
+document.addEventListener('keydown', e=>{
+  const t = e.target;
+  if(t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.isContentEditable)) return; // 不抢输入框的方向键
+  if(e.key==='ArrowLeft')  go(-1);
+  if(e.key==='ArrowRight') go(1);
+});
+
+const want = (new URL(location)).searchParams.get('v');
+mount(Math.max(0, VARIANTS.findIndex(v=>v.k===(want||'A').toUpperCase())));
+</script>
+</body>
+</html>
