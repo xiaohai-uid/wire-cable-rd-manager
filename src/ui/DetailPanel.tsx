@@ -222,10 +222,9 @@ function RecordRow({
       <td className="text-right whitespace-nowrap">
         <button
           type="button"
-          disabled
           onClick={() => onOpenBatch(record.batchNo)}
-          className="rounded px-1.5 py-0.5 text-[11.5px] text-ink-3 disabled:cursor-not-allowed disabled:opacity-45"
-          title={`跳到批次 ${record.batchNo} 的录入网格 —— 录入界面在工单 04 落地，暂未启用`}
+          className="rounded px-1.5 py-0.5 text-[11.5px] font-medium text-accent hover:bg-accent-soft"
+          title={`跳到批次 ${record.batchNo} 的录入网格，可直接修正这条记录`}
         >
           去录入 →
         </button>

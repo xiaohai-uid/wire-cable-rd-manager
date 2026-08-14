@@ -1,12 +1,34 @@
 import type { ReactNode } from 'react';
+import type { UrlState } from './use-url-state';
 import { useDataPort } from './data-port-context';
+import { navigationGuard } from './navigation-guard';
 
 /**
  * 共享外壳：顶栏 + 内容区。
  * 顶栏是唯一跨页面共享的结构，各页面自己决定内部布局（沿用原型的做法）。
+ *
+ * 这里也负责页面切换的守卫：切换到「质量矩阵」或「录入」前，若录入网格有未保存
+ * 修改，先跟用户确认，避免一眨眼丢掉刚录的一屏数据。
  */
-export function AppShell({ children }: { readonly children: ReactNode }) {
+export function AppShell({
+  url,
+  children,
+}: {
+  readonly url: UrlState;
+  readonly children: ReactNode;
+}) {
   const port = useDataPort();
+  const onBatch = url.params.page === 'batch';
+
+  const navigate = (patch: Record<string, string | undefined>) => {
+    if (
+      !navigationGuard.canLeave() &&
+      !window.confirm('有未保存的修改，确定离开吗？修改将丢失。')
+    ) {
+      return;
+    }
+    url.setParams(patch);
+  };
 
   return (
     <div className="min-h-screen">
@@ -16,9 +38,17 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
         </span>
 
         <nav className="flex gap-0.5">
-          <span className="rounded-md bg-zinc-100 px-2.5 py-1 text-[12.5px] font-semibold text-ink">
+          <TabButton
+            active={!onBatch}
+            onClick={() =>
+              navigate({ page: undefined, product: undefined, item: undefined, batch: undefined })
+            }
+          >
             质量矩阵
-          </span>
+          </TabButton>
+          <TabButton active={onBatch} onClick={() => navigate({ page: 'batch' })}>
+            录入
+          </TabButton>
         </nav>
 
         <span className="flex-1" />
@@ -28,6 +58,28 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
       {children}
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  readonly active: boolean;
+  readonly onClick: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md px-2.5 py-1 text-[12.5px] font-semibold ${
+        active ? 'bg-zinc-100 text-ink' : 'text-ink-3 hover:bg-zinc-50'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

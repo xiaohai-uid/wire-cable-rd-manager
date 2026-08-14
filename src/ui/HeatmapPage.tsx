@@ -34,7 +34,14 @@ export function HeatmapPage() {
             setParams({ product: productModel, item: testItem })
           }
           onClear={() => setParams({ product: undefined, item: undefined })}
-          onOpenBatch={(batchNo) => setParams({ batch: batchNo })}
+          onOpenBatch={(batchNo) =>
+            setParams({
+              page: 'batch',
+              product: selection?.productModel,
+              item: selection?.testItem,
+              batch: batchNo,
+            })
+          }
         />
       )}
     </main>
