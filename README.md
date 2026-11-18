@@ -9,7 +9,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D24-brightgreen)](https://nodejs.org)
 [![SQLite](https://img.shields.io/badge/database-SQLite-blue)](https://sqlite.org)
-[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen)](https://github.com/xiaohai-uid/wire-cable-rd-manager/actions)
+[打开在线演示](https://xiaohai-uid.github.io/wire-cable-rd-manager/) · [查看判定规则](docs/adr/0004-spec-as-typed-judgment-rule.md)
+
+第一次试用时，点质量热力图中一个有数据的格子，在右侧抽屉核对产品、测试项和对应批次。在线版使用演示数据，刷新后重置；要保存自己的记录，请按下方「本地全功能」运行。
 
 ---
 
